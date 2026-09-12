@@ -1014,6 +1014,7 @@ describe('areTokenizationsEqual', () => {
                 states: ['ignored'],
                 readings: [{ pos: [0, 1], reading: 'a' }],
                 frequency: 1,
+                gloss: 'first',
                 groupingKey: 'group-a',
             },
         ],
@@ -1033,6 +1034,7 @@ describe('areTokenizationsEqual', () => {
                     pos: [...token.pos],
                     states: [...token.states],
                     readings: token.readings.map((reading: any) => ({ ...reading, pos: [...reading.pos] })),
+                    gloss: token.gloss,
                 })),
             })
         ).toBe(true);

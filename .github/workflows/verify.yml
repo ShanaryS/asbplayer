@@ -23,5 +23,12 @@ jobs:
             - run: npm install --global yarn
             - run: yarn set version 3.2.0
             - run: yarn install
+            - name: Build FFmpeg candidate
+              if: github.event_name == 'pull_request'
+              run: yarn build:ffmpeg
+            - name: Fetch released FFmpeg runtime
+              if: github.event_name != 'pull_request'
+              run: yarn fetch:ffmpeg
+            - run: yarn verify:ffmpeg
             - run: yarn workspace @project/extension run zip
             - run: yarn workspace @project/client run build

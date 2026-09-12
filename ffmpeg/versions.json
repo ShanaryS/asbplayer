@@ -1,0 +1,22 @@
+{
+    "coreVersion": "0.1.0",
+    "wrapperVersion": "0.12.15",
+    "bindingsRevision": "71aa99d37c02a7b4c435275ca9ef50e612f6efa1",
+    "bindingsSource": {
+        "url": "https://github.com/ffmpegwasm/ffmpeg.wasm/archive/refs/tags/v12.15.tar.gz",
+        "sha256": "98e473f975e4aa6e5836d99078c40db5d8f4ea52685e6411025f2d7b876a7569"
+    },
+    "ffmpegVersion": "5.1.4",
+    "ffmpegRevision": "n5.1.4",
+    "ffmpegSource": {
+        "url": "https://ffmpeg.org/releases/ffmpeg-5.1.4.tar.xz",
+        "sha256": "54383bb890a1cd62580e9f1eaa8081203196ed53bde9e98fb6b0004423f49063"
+    },
+    "emscriptenVersion": "3.1.40",
+    "container": "emscripten/emsdk@sha256:c1e807a6e03ac5bd5b37bae2ace3c46c08579e2ddeb951037a3b8dac7067f2cc",
+    "platform": "linux/amd64",
+    "bundler": {
+        "name": "esbuild",
+        "version": "0.25.9"
+    }
+}

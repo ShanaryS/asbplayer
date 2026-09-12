@@ -21,6 +21,8 @@ jobs:
             - run: npm install --global yarn
             - run: yarn set version 3.2.0
             - run: yarn install
+            - run: yarn fetch:ffmpeg
+            - run: yarn verify:ffmpeg
             - run: yarn workspace @project/extension run zip:firefox-android
             - name: Submit to stores
               working-directory: ./extension
@@ -29,6 +31,6 @@ jobs:
                     --firefox-zip .output/*-firefox-android.zip --firefox-sources-zip .output/*-sources.zip \
                     --firefox-channel listed
               env:
-                  FIREFOX_EXTENSION_ID: "asbplayer-android"
+                  FIREFOX_EXTENSION_ID: 'asbplayer-android'
                   FIREFOX_JWT_ISSUER: ${{ secrets.FIREFOX_JWT_ISSUER }}
                   FIREFOX_JWT_SECRET: ${{ secrets.FIREFOX_JWT_SECRET }}

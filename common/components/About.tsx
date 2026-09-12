@@ -15,6 +15,7 @@ import { useTheme, withStyles } from '@mui/styles';
 import type { Theme } from '@mui/material';
 import { useTranslation } from 'react-i18next';
 import SettingsSection from '@project/common/components/SettingsSection';
+import { ffmpegMetadata } from '@project/ffmpeg';
 
 interface Props {
     appVersion?: string;
@@ -203,6 +204,20 @@ const dependencies: Dependency[] = [
         licenseLink: 'https://github.com/petyosi/react-virtuoso/blob/main/README.md#license',
         purpose: 'Virtualized subtitle list rendering',
     },
+    {
+        name: `FFmpeg core ${ffmpegMetadata.coreVersion}`,
+        projectLink: 'https://ffmpeg.org',
+        license: 'LGPL 2.1+',
+        licenseLink: 'ffmpeg-notices/FFmpeg-LGPL-2.1.txt',
+        purpose: 'Media processing runtime',
+    },
+    {
+        name: `@ffmpeg/ffmpeg ${ffmpegMetadata.wrapperVersion}`,
+        projectLink: 'https://github.com/ffmpegwasm/ffmpeg.wasm',
+        license: 'MIT',
+        licenseLink: 'ffmpeg-notices/ffmpeg-wrapper-MIT.txt',
+        purpose: 'Media processing runtime',
+    },
 ];
 
 const dependencyPurposeCounts: { [key: string]: number } = {};
@@ -273,6 +288,11 @@ const About = ({ appVersion, extensionVersion }: Props) => {
                     CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
                 </Typography>
             </Paper>
+            <br />
+            <Typography variant="body2">
+                FFmpeg core {ffmpegMetadata.coreVersion}:{' '}
+                <Link href={ffmpegMetadata.sourceUrl}>corresponding source and rebuild materials</Link>
+            </Typography>
             <br />
             <SettingsSection>{t('about.deps')}</SettingsSection>
             <TableContainer variant="outlined" component={Paper} style={{ height: 'auto' }}>

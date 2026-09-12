@@ -1,0 +1,27 @@
+name: Build FFmpeg
+
+on:
+    workflow_call:
+    workflow_dispatch:
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  cache: npm
+            - run: npm install --global yarn
+            - run: yarn set version 3.2.0
+            - run: yarn install --immutable
+            - run: yarn build:ffmpeg
+            - run: yarn verify:ffmpeg
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: asbplayer-ffmpeg-0.1.0-candidate
+                  path: |
+                      ffmpeg/dist/0.1.0
+                      ffmpeg/release
+                  if-no-files-found: error

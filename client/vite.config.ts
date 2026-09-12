@@ -3,6 +3,8 @@ import react from '@vitejs/plugin-react';
 import { createHtmlPlugin } from 'vite-plugin-html';
 import { VitePWA } from 'vite-plugin-pwa';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
+import { execFileSync } from 'node:child_process';
+import path from 'node:path';
 
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, process.cwd());
@@ -14,6 +16,18 @@ export default defineConfig(({ mode }) => {
             tsconfigPaths: true,
         },
         plugins: [
+            {
+                name: 'verify-ffmpeg-runtime',
+                buildStart() {
+                    execFileSync(
+                        process.execPath,
+                        [path.resolve(__dirname, '../ffmpeg/scripts/verify-artifacts.mjs'), '--source'],
+                        {
+                            stdio: 'inherit',
+                        }
+                    );
+                },
+            },
             react(),
             createHtmlPlugin({
                 inject: {
@@ -35,6 +49,18 @@ export default defineConfig(({ mode }) => {
                     {
                         src: '../common/assets',
                         dest: '',
+                    },
+                    {
+                        src: '../ffmpeg/dist/0.1.0',
+                        dest: 'ffmpeg',
+                    },
+                    {
+                        src: '../ffmpeg/dist/0.1.0/notices/*',
+                        dest: 'ffmpeg-notices',
+                    },
+                    {
+                        src: '../ffmpeg/release/asbplayer-ffmpeg-0.1.0-source.tar.xz',
+                        dest: 'ffmpeg/0.1.0',
                     },
                 ],
             }),
@@ -70,6 +96,19 @@ export default defineConfig(({ mode }) => {
                 },
                 devOptions: {
                     enabled: false,
+                },
+                workbox: {
+                    globIgnores: ['**/ffmpeg/**'],
+                    navigateFallbackDenylist: [/\/ffmpeg\//],
+                    runtimeCaching: [
+                        {
+                            urlPattern: ({ url }) => url.pathname.includes('/ffmpeg/'),
+                            handler: 'CacheFirst',
+                            options: {
+                                cacheName: 'asbplayer-ffmpeg-runtime',
+                            },
+                        },
+                    ],
                 },
             }),
         ],

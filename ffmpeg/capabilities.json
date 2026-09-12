@@ -1,0 +1,14 @@
+{
+    "schemaVersion": 1,
+    "explicit": {
+        "decoders": [],
+        "encoders": [],
+        "demuxers": [],
+        "muxers": [],
+        "parsers": [],
+        "filters": [],
+        "bitstreamFilters": [],
+        "protocols": []
+    },
+    "consumers": []
+}

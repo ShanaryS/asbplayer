@@ -40,3 +40,9 @@ yarn-error.log*
 
 .direnv
 
+# FFmpeg build products and downloaded source
+/ffmpeg/.cache/
+/ffmpeg/dist/
+/ffmpeg/release/
+/ffmpeg/reviewer-source/
+/ffmpeg/node_modules/

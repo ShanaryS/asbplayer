@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <title>asbplayer FFmpeg smoke test</title>
+    </head>
+    <body>
+        PENDING
+        <script type="module">
+            const runtime = new URL('../../dist/0.1.0/', import.meta.url);
+            try {
+                const { FFmpeg } = await import(new URL('ffmpeg-wrapper.js', runtime));
+                const ffmpeg = new FFmpeg();
+                const logs = [];
+                ffmpeg.on('log', ({ message }) => logs.push(message));
+                await ffmpeg.load({
+                    classWorkerURL: new URL('ffmpeg-worker.js', runtime).href,
+                    coreURL: new URL('ffmpeg-core.js', runtime).href,
+                    wasmURL: new URL('ffmpeg-core.wasm', runtime).href,
+                });
+                for (const command of [['-version'], ['-buildconf'], ['-L'], ['-version']]) {
+                    const exitCode = await ffmpeg.exec(command);
+                    if (exitCode !== 0) throw new Error(`Command ${command.join(' ')} exited ${exitCode}`);
+                }
+                await ffmpeg.createDir('/smoke-input');
+                await ffmpeg.mount('WORKERFS', { files: [new File(['fixture'], 'input')] }, '/smoke-input');
+                await ffmpeg.unmount('/smoke-input');
+                await ffmpeg.deleteDir('/smoke-input');
+                ffmpeg.terminate();
+                const output = logs.join('\n');
+                if (!output.includes('asbplayer-ffmpeg-0.1.0') || !output.includes('--disable-gpl')) {
+                    throw new Error('Runtime diagnostics did not match the pinned build');
+                }
+                document.body.textContent = 'PASS';
+            } catch (error) {
+                document.body.textContent = `FAIL: ${error.stack ?? error}`;
+            }
+        </script>
+    </body>
+</html>

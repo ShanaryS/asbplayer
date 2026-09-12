@@ -1,0 +1,33 @@
+{
+    "name": "@project/ffmpeg",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts",
+        "./*": "./src/*.ts",
+        "./artifact-lock.json": "./artifact-lock.json",
+        "./capabilities.json": "./capabilities.json",
+        "./versions.json": "./versions.json"
+    },
+    "scripts": {
+        "build:runtime": "bash scripts/build.sh",
+        "fetch": "node scripts/fetch.mjs",
+        "verify:artifacts": "node scripts/verify-artifacts.mjs",
+        "prepare:reviewer-source": "node scripts/prepare-reviewer-source.mjs",
+        "verify:reproducible": "bash scripts/verify-reproducible.sh",
+        "compile": "tsc --noEmit",
+        "test": "jest --config jest.config.cjs"
+    },
+    "dependencies": {
+        "@ffmpeg/ffmpeg": "0.12.15"
+    },
+    "devDependencies": {
+        "@types/jest": "^30.0.0",
+        "esbuild": "0.25.9",
+        "jest": "^30.0.5",
+        "jest-environment-jsdom": "^30.0.5",
+        "ts-jest": "^29.4.0",
+        "typescript": "^5.8.3"
+    }
+}

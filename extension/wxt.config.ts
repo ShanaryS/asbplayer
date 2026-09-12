@@ -2,17 +2,33 @@ import { defineConfig } from 'wxt';
 import type { ResolvedPublicFile, UserManifest, Wxt } from 'wxt';
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 const commonAssets = [
     { srcDir: path.resolve(__dirname, '../common/locales'), destDir: 'asbplayer-locales' },
     { srcDir: path.resolve(__dirname, '../common/assets'), destDir: 'assets' },
 ];
 
+const ffmpegVersion = '0.1.0';
+const ffmpegRoot = path.resolve(__dirname, `../ffmpeg/dist/${ffmpegVersion}`);
+const ffmpegRuntimeFiles = [
+    'ffmpeg-wrapper.js',
+    'ffmpeg-worker.js',
+    'ffmpeg-core.js',
+    'ffmpeg-core.wasm',
+    'manifest.json',
+    'notices/FFmpeg-LGPL-2.1.txt',
+    'notices/Emscripten-MIT.txt',
+    'notices/ffmpeg-wasm-MIT.txt',
+    'notices/ffmpeg-wrapper-MIT.txt',
+];
+const ffmpegNoticeFiles = ffmpegRuntimeFiles.filter((file) => file.startsWith('notices/'));
+
 const moveToPublicAssets = (srcPath: string, destPath: string, files: ResolvedPublicFile[]) => {
     const srcFiles = fs.readdirSync(srcPath);
     for (const file of srcFiles) {
         files.push({
-            absoluteSrc: path.resolve(srcPath, file) as string,
+            absoluteSrc: path.resolve(srcPath, file),
             relativeDest: `${destPath}/${file}`,
         });
     }
@@ -22,6 +38,25 @@ const addToPublicPathsType = (srcPath: string, destPath: string, paths: string[]
     const srcFiles = fs.readdirSync(srcPath);
     for (const file of srcFiles) {
         paths.push(`${destPath}/${file}`);
+    }
+};
+
+const addFfmpegPublicAssets = (files: ResolvedPublicFile[]) => {
+    if (!fs.existsSync(ffmpegRoot)) {
+        throw new Error('FFmpeg is not prepared. Run yarn fetch:ffmpeg or yarn build:ffmpeg.');
+    }
+    execFileSync(process.execPath, [path.resolve(__dirname, '../ffmpeg/scripts/verify-artifacts.mjs')], {
+        stdio: 'inherit',
+    });
+    for (const file of ffmpegRuntimeFiles) {
+        const absoluteSrc = path.resolve(ffmpegRoot, file);
+        if (!fs.existsSync(absoluteSrc)) {
+            throw new Error(`Prepared FFmpeg runtime is incomplete: ${file} is missing`);
+        }
+        files.push({ absoluteSrc, relativeDest: `ffmpeg/${ffmpegVersion}/${file}` });
+        if (file.startsWith('notices/')) {
+            files.push({ absoluteSrc, relativeDest: `ffmpeg-notices/${path.basename(file)}` });
+        }
     }
 };
 
@@ -43,7 +78,14 @@ export default defineConfig({
     }),
     zip: {
         sourcesRoot: '..',
-        includeSources: ['.yarn/patches/**'],
+        includeSources: [
+            '.yarn/patches/**',
+            'ffmpeg/**',
+            '!ffmpeg/dist/**',
+            '!ffmpeg/release/**',
+            '!ffmpeg/.cache/**',
+            'ffmpeg/reviewer-source/**',
+        ],
         artifactTemplate: `${extName}-{{version}}-{{browser}}.zip`,
         sourcesTemplate: `${extName}-{{version}}-sources.zip`,
     },
@@ -52,15 +94,18 @@ export default defineConfig({
             for (const { srcDir, destDir } of commonAssets) {
                 moveToPublicAssets(srcDir, destDir, files);
             }
+            addFfmpegPublicAssets(files);
         },
         'prepare:publicPaths': (wxt: Wxt, paths: string[]) => {
             for (const { srcDir, destDir } of commonAssets) {
                 addToPublicPathsType(srcDir, destDir, paths);
             }
+            paths.push(...ffmpegRuntimeFiles.map((file) => `ffmpeg/${ffmpegVersion}/${file}`));
+            paths.push(...ffmpegNoticeFiles.map((file) => `ffmpeg-notices/${path.basename(file)}`));
             paths.push('content-scripts/video.css');
         },
     },
-    manifest: ({ browser, mode }) => {
+    manifest: ({ browser, mode, manifestVersion }) => {
         const version = '1.21.0';
         const isDev = mode === 'development';
         const devLabel = isDev ? ' (Dev)' : '';
@@ -248,6 +293,12 @@ export default defineConfig({
         return {
             ...manifest,
             permissions,
+            content_security_policy:
+                manifestVersion === 2
+                    ? "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
+                    : {
+                          extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';",
+                      },
         };
     },
 });

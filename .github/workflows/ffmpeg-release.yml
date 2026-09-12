@@ -1,0 +1,39 @@
+name: Release FFmpeg
+
+on:
+    push:
+        tags:
+            - ffmpeg-v*
+
+permissions:
+    contents: write
+
+jobs:
+    release:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  cache: npm
+            - run: npm install --global yarn
+            - run: yarn set version 3.2.0
+            - run: yarn install --immutable
+            - run: yarn workspace @project/ffmpeg verify:reproducible
+            - run: yarn verify:ffmpeg
+            - name: Confirm tag matches core version
+              run: test "$GITHUB_REF_NAME" = "ffmpeg-v$(node -p \"require('./ffmpeg/versions.json').coreVersion\")"
+            - name: Publish independent runtime/source release
+              run: >-
+                  gh release create "$GITHUB_REF_NAME"
+                  ffmpeg/release/asbplayer-ffmpeg-*-runtime.tar.gz
+                  ffmpeg/release/asbplayer-ffmpeg-*-source.tar.xz
+                  ffmpeg/release/manifest.json
+                  ffmpeg/release/SHA256SUMS
+                  ffmpeg/release/build-report.json
+                  --title "asbplayer FFmpeg $(node -p \"require('./ffmpeg/versions.json').coreVersion\")"
+                  --notes "Minimal LGPL FFmpeg CLI runtime and exact corresponding source."
+                  --latest=false
+              env:
+                  GH_TOKEN: ${{ github.token }}

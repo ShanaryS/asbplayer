@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "coreVersion": "0.1.0",
+  "releaseBaseUrl": "https://github.com/asbplayer/asbplayer/releases/download/ffmpeg-v0.1.0",
+  "runtimeArchive": {
+    "name": "asbplayer-ffmpeg-0.1.0-runtime.tar.gz",
+    "sha256": "df18fcb41c2fc978c86bf60a0c9290caa0dee9abc062414e6ece6d895ad53f51"
+  },
+  "sourceArchive": {
+    "name": "asbplayer-ffmpeg-0.1.0-source.tar.xz",
+    "sha256": "773fc99519255f2d54a9150bc82e34cdd5c833a2c1bbcfe05c21feb49d9de727"
+  },
+  "runtime": {
+    "ffmpeg-wrapper.js": "45d567a9f9d041a4282b56f91ac4f044368718701006b0d15d6769f23bbcd595",
+    "ffmpeg-worker.js": "ea58887eca75dc798645ba4d64b00713674e3d0cf1aea66ad67db6970c370046",
+    "ffmpeg-core.js": "3edb3948dfe40583266836864aef094f869d93f934422e35d8c5fa3266245e4b",
+    "ffmpeg-core.wasm": "c6e07cd03d2920e3025bf1e746d75503ed89575e940c6cd1af0a52c50a79e1f6"
+  }
+}

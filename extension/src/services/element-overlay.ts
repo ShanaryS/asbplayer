@@ -325,6 +325,16 @@ export class CachingElementOverlay implements ElementOverlay {
             return chosen;
         }
 
+        const fullscreenElement = document.fullscreenElement;
+        if (
+            fullscreenElement instanceof HTMLElement &&
+            fullscreenElement.contains(this.targetElement) &&
+            !fullscreenElement.isSameNode(this.targetElement) &&
+            !fullscreenElement.contains(document.body)
+        ) {
+            return fullscreenElement;
+        }
+
         return document.body;
     }
 

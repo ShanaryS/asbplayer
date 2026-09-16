@@ -1,0 +1,34 @@
+{
+    "name": "@project/ffmpeg",
+    "version": "0.0.0",
+    "private": true,
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts",
+        "./*": "./src/*.ts",
+        "./artifact-lock.json": "./artifact-lock.json",
+        "./build-config.json": "./build-config.json",
+        "./package.json": "./package.json"
+    },
+    "scripts": {
+        "build:runtime": "bash scripts/build.sh",
+        "package:candidate": "bash scripts/package-candidate.sh",
+        "fetch": "node scripts/fetch.mjs",
+        "verify:candidate": "node scripts/verify-artifacts.mjs --candidate --source",
+        "test:native": "bash scripts/test-native.sh",
+        "verify:frozen:runtime": "node scripts/verify-artifacts.mjs",
+        "verify:frozen:source": "node scripts/verify-artifacts.mjs --source",
+        "select:runtime": "node scripts/select-runtime.mjs",
+        "verify:reproducible": "bash scripts/verify-reproducible.sh",
+        "release:check": "bash scripts/release-check.sh",
+        "compile": "tsc --noEmit",
+        "test": "jest --config jest.config.cjs"
+    },
+    "devDependencies": {
+        "@types/jest": "^30.0.0",
+        "esbuild": "0.25.9",
+        "jest": "^30.0.5",
+        "ts-jest": "^29.4.0",
+        "typescript": "^5.8.3"
+    }
+}

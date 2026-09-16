@@ -12,11 +12,11 @@
         "build:firefox": "wxt build -b firefox",
         "build:firefox-android": "wxt build -b firefox-android --mv2",
         "zip": "yarn check && wxt zip",
-        "zip:firefox": "yarn check && wxt zip -b firefox",
+        "zip:firefox": "yarn check && wxt zip -b firefox --sources",
         "zip:firefox-android": "yarn check && wxt zip -b firefox-android --mv2 --sources",
         "compile": "tsc --noEmit",
         "postinstall": "wxt prepare",
-        "check": "yarn workspace root run verify && yarn compile",
+        "check": "yarn workspace root verify:app && yarn compile",
         "test": "jest"
     },
     "dependencies": {

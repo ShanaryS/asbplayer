@@ -1,0 +1,32 @@
+name: Build FFmpeg
+
+on: workflow_dispatch
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  cache: npm
+            - run: npm install --global yarn
+            - run: yarn set version 3.2.0
+            - run: yarn install --immutable
+            - name: Read FFmpeg runtime version
+              id: ffmpeg-version
+              run: |
+                  version="$(node -p "require('./ffmpeg/package.json').version")"
+                  echo "version=$version" >> "$GITHUB_OUTPUT"
+            - run: yarn build:ffmpeg
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: asbplayer-ffmpeg-${{ steps.ffmpeg-version.outputs.version }}-candidate
+                  path: |
+                      ffmpeg/dist/${{ steps.ffmpeg-version.outputs.version }}
+                      ffmpeg/release
+                      ffmpeg/.cache/docker-output/config.mak
+                      ffmpeg/.cache/docker-output/config.h
+                      ffmpeg/.cache/docker-output/ffmpeg-core.map
+                  if-no-files-found: error

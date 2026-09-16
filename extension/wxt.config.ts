@@ -12,7 +12,7 @@ const moveToPublicAssets = (srcPath: string, destPath: string, files: ResolvedPu
     const srcFiles = fs.readdirSync(srcPath);
     for (const file of srcFiles) {
         files.push({
-            absoluteSrc: path.resolve(srcPath, file) as string,
+            absoluteSrc: path.resolve(srcPath, file),
             relativeDest: `${destPath}/${file}`,
         });
     }
@@ -245,9 +245,6 @@ export default defineConfig({
             };
         }
 
-        return {
-            ...manifest,
-            permissions,
-        };
+        return { ...manifest, permissions };
     },
 });

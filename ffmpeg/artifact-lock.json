@@ -1,0 +1,24 @@
+{
+    "schemaVersion": 1,
+    "runtimeVersion": "0.0.0",
+    "ffmpegVersion": "9.0.1",
+    "releaseBaseUrl": "https://github.com/asbplayer/asbplayer/releases/download/ffmpeg-v0.0.0",
+    "runtimeArchive": {
+        "filename": "asbplayer-ffmpeg-0.0.0-runtime.tar.gz",
+        "sha256": "ad689750a10c59dfb22ada40603430a70a1b682eaade71ec557009c6e64d515d"
+    },
+    "sourceArchive": {
+        "filename": "asbplayer-ffmpeg-0.0.0-source.tar.xz",
+        "sha256": "315b89a36f8e2476b702a824378882ee3ec864823bc12c82c1514d019f0c74f6"
+    },
+    "manifestSha256": "e25371f9ac1c4abcb40e8c8bc0995a4a74e9f773d3c7a8fbf0df0e17d5b719dd",
+    "runtimeFiles": {
+        "ffmpeg-core.js": "2f3912712de9f066adb464b7e8210ecf8f8115b66fa3e227dad87e0c6be5e70f",
+        "ffmpeg-core.wasm": "530c4da9e5c7417972fe650fbc66603e567d61995e3ae38035c81b7a374ed9fa",
+        "ffmpeg-worker.js": "1911bf174fe5a02edc16c76bdcd10046db91b0d304d9103c0dfa03cd90de0dfd",
+        "notices/Emscripten-MIT.txt": "620a78084fc7ca97c0b5dea9abf891f3ffcadfdbf305276f099c9c4e12fc1d86",
+        "notices/FFmpeg-LGPL-2.1.txt": "246041b6ecf9bc32d718a62c57877c78b5eb397b6467e74ed7ae2626ab189c30",
+        "notices/libcxx-Apache-2.0.txt": "539dd7aed86e8a4f12cbdd0e6c50c189c7d74847e4fecc64ce2c6ee3a01da38b",
+        "manifest.json": "e25371f9ac1c4abcb40e8c8bc0995a4a74e9f773d3c7a8fbf0df0e17d5b719dd"
+    }
+}

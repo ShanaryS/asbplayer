@@ -51,7 +51,7 @@ yarn set version 3.2.0
 yarn
 
 # Starts the development server for the website
-yarn workspace @project/client run start
+yarn workspace @project/client start
 
 # Starts the dev server for the Chromium version of the extension to extension/.output/chrome-mv3-dev
 yarn workspace @project/extension dev

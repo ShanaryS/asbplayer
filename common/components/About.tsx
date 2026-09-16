@@ -19,7 +19,7 @@ import SettingsSection from '@project/common/components/SettingsSection';
 interface Props {
     appVersion?: string;
     extensionVersion?: string;
-    insideExtension?: boolean;
+    additionalDependencies?: AboutDependency[];
 }
 
 const Link = ({ children, ...props }: { children: React.ReactNode } & LinkProps) => {
@@ -43,7 +43,7 @@ const BorderedTableCell = withStyles(() => ({
     root: {},
 }))(MuiTableCell);
 
-type Dependency = {
+export type AboutDependency = {
     name: string;
     projectLink: string;
     license: string;
@@ -52,7 +52,7 @@ type Dependency = {
     extension?: boolean;
 };
 
-const dependencies: Dependency[] = [
+const dependencies: AboutDependency[] = [
     {
         name: 'react',
         projectLink: 'https://react.dev',
@@ -205,17 +205,17 @@ const dependencies: Dependency[] = [
     },
 ];
 
-const dependencyPurposeCounts: { [key: string]: number } = {};
-
-for (const dep of dependencies) {
-    const count = dependencyPurposeCounts[dep.purpose] ?? 0;
-    dependencyPurposeCounts[dep.purpose] = count + 1;
-}
-
-const About = ({ appVersion, extensionVersion }: Props) => {
+const About = ({ appVersion, extensionVersion, additionalDependencies = [] }: Props) => {
     const theme = useTheme<Theme>();
     const { t } = useTranslation();
     const renderedPurpose: { [key: string]: boolean } = {};
+    const visibleDependencies = [...dependencies, ...additionalDependencies].filter(
+        (dependency) => !dependency.extension || extensionVersion !== undefined
+    );
+    const dependencyPurposeCounts = visibleDependencies.reduce<Record<string, number>>((counts, dependency) => {
+        counts[dependency.purpose] = (counts[dependency.purpose] ?? 0) + 1;
+        return counts;
+    }, {});
     return (
         <Box p={1} style={{ width: '100%' }}>
             <Box style={{ width: '100%', textAlign: 'center' }}>
@@ -285,48 +285,47 @@ const About = ({ appVersion, extensionVersion }: Props) => {
                         </TableRow>
                     </TableHead>
                     <TableBody>
-                        {dependencies
-                            .filter((d) => !d.extension || extensionVersion !== undefined)
-                            .map((d, index) => {
-                                let alreadyRenderedPurpose: boolean;
+                        {visibleDependencies.map((d, index) => {
+                            let alreadyRenderedPurpose: boolean;
 
-                                if (renderedPurpose[d.purpose] === undefined) {
-                                    alreadyRenderedPurpose = false;
-                                } else {
-                                    alreadyRenderedPurpose = true;
-                                }
+                            if (renderedPurpose[d.purpose] === undefined) {
+                                alreadyRenderedPurpose = false;
+                            } else {
+                                alreadyRenderedPurpose = true;
+                            }
 
-                                renderedPurpose[d.purpose] = true;
+                            renderedPurpose[d.purpose] = true;
 
-                                let CellComponent = TableCell;
-                                const nextPurpose = dependencies[index + 1]?.purpose;
+                            let CellComponent = TableCell;
+                            const nextPurpose = visibleDependencies[index + 1]?.purpose;
 
-                                if (nextPurpose !== undefined && d.purpose !== nextPurpose) {
-                                    CellComponent = BorderedTableCell;
-                                }
+                            if (nextPurpose !== undefined && d.purpose !== nextPurpose) {
+                                CellComponent = BorderedTableCell;
+                            }
 
-                                const isLastPurposeCell = d.purpose === dependencies[dependencies.length - 1].purpose;
+                            const isLastPurposeCell =
+                                d.purpose === visibleDependencies[visibleDependencies.length - 1].purpose;
 
-                                return (
-                                    <TableRow key={d.name}>
-                                        <CellComponent>
-                                            {d.projectLink && <Link href={d.projectLink}>{d.name}</Link>}
-                                            {!d.projectLink && d.name}
-                                        </CellComponent>
-                                        <CellComponent>
-                                            <Link href={d.licenseLink}>{d.license}</Link>
-                                        </CellComponent>
-                                        {!alreadyRenderedPurpose && (
-                                            <BorderedTableCell
-                                                style={!isLastPurposeCell ? {} : { borderBottom: 0 }}
-                                                rowSpan={dependencyPurposeCounts[d.purpose]}
-                                            >
-                                                {d.purpose}
-                                            </BorderedTableCell>
-                                        )}
-                                    </TableRow>
-                                );
-                            })}
+                            return (
+                                <TableRow key={`${d.name}:${d.licenseLink}`}>
+                                    <CellComponent>
+                                        {d.projectLink && <Link href={d.projectLink}>{d.name}</Link>}
+                                        {!d.projectLink && d.name}
+                                    </CellComponent>
+                                    <CellComponent>
+                                        <Link href={d.licenseLink}>{d.license}</Link>
+                                    </CellComponent>
+                                    {!alreadyRenderedPurpose && (
+                                        <BorderedTableCell
+                                            style={!isLastPurposeCell ? {} : { borderBottom: 0 }}
+                                            rowSpan={dependencyPurposeCounts[d.purpose]}
+                                        >
+                                            {d.purpose}
+                                        </BorderedTableCell>
+                                    )}
+                                </TableRow>
+                            );
+                        })}
                     </TableBody>
                 </Table>
             </TableContainer>

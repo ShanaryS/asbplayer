@@ -14,14 +14,17 @@ jobs:
             matrix:
                 node-version: [22.x]
         steps:
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@v4
             - name: Use Node.js ${{ matrix.node-version }}
-              uses: actions/setup-node@v3
+              uses: actions/setup-node@v4
               with:
                   node-version: ${{ matrix.node-version }}
                   cache: 'npm'
             - run: npm install --global yarn
             - run: yarn set version 3.2.0
-            - run: yarn install
-            - run: yarn workspace @project/extension run zip
-            - run: yarn workspace @project/client run build
+            - run: yarn install --immutable
+            - run: yarn verify:ffmpeg:code
+            - run: yarn fetch:ffmpeg
+            - run: yarn verify:app
+            - run: yarn workspace @project/extension zip
+            - run: yarn workspace @project/client build

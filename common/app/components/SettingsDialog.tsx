@@ -19,6 +19,7 @@ import type { Theme } from '@mui/material';
 import type { DictionaryProvider } from '@project/common/dictionary-db';
 import { useAnnotationTutorial } from '@project/common/hooks/use-annotation-tutorial';
 import { AppExtensionGlobalStateProvider } from '@project/common/app/services/app-extension-global-state-provider';
+import { ffmpegMetadata } from '@project/ffmpeg';
 
 const appTestCard = () => {
     const basePath = window.location.pathname === '/' ? '' : window.location.pathname;
@@ -129,6 +130,51 @@ export default function SettingsDialog({
                     pageConfigs={extension.pageConfig}
                     insideApp
                     appVersion={import.meta.env.VITE_APP_GIT_COMMIT}
+                    aboutAdditionalDependencies={[
+                        {
+                            name: `FFmpeg ${ffmpegMetadata.ffmpegVersion}`,
+                            projectLink: 'https://ffmpeg.org',
+                            license: 'LGPL 2.1+',
+                            licenseLink: `ffmpeg/${ffmpegMetadata.runtimeVersion}/notices/FFmpeg-LGPL-2.1.txt`,
+                            purpose: 'FFmpeg',
+                            purposeLink: ffmpegMetadata.sourceUrl,
+                        },
+                        {
+                            name: 'Emscripten',
+                            projectLink: 'https://emscripten.org',
+                            license: 'MIT / NCSA',
+                            licenseLink: `ffmpeg/${ffmpegMetadata.runtimeVersion}/notices/Emscripten-MIT.txt`,
+                            purpose: 'FFmpeg',
+                        },
+                        {
+                            name: 'musl libc',
+                            projectLink: 'https://musl.libc.org',
+                            license: 'MIT',
+                            licenseLink: `ffmpeg/${ffmpegMetadata.runtimeVersion}/notices/musl-COPYRIGHT.txt`,
+                            purpose: 'FFmpeg',
+                        },
+                        {
+                            name: 'compiler-rt',
+                            projectLink: 'https://compiler-rt.llvm.org',
+                            license: 'Apache 2.0 with LLVM Exceptions',
+                            licenseLink: `ffmpeg/${ffmpegMetadata.runtimeVersion}/notices/compiler-rt-LICENSE.txt`,
+                            purpose: 'FFmpeg',
+                        },
+                        {
+                            name: 'libc++',
+                            projectLink: 'https://libcxx.llvm.org',
+                            license: 'Apache 2.0 with LLVM Exceptions',
+                            licenseLink: `ffmpeg/${ffmpegMetadata.runtimeVersion}/notices/libcxx-Apache-2.0.txt`,
+                            purpose: 'FFmpeg',
+                        },
+                        {
+                            name: 'libc++abi',
+                            projectLink: 'https://libcxxabi.llvm.org',
+                            license: 'Apache 2.0 with LLVM Exceptions',
+                            licenseLink: `ffmpeg/${ffmpegMetadata.runtimeVersion}/notices/libcxxabi-LICENSE.txt`,
+                            purpose: 'FFmpeg',
+                        },
+                    ]}
                     chromeKeyBinds={extension.extensionCommands}
                     onOpenChromeExtensionShortcuts={extension.openShortcuts}
                     onSettingsChanged={onSettingsChanged}

@@ -5,7 +5,8 @@
         "packages": [
             "client",
             "extension",
-            "common"
+            "common",
+            "ffmpeg"
         ]
     },
     "devDependencies": {
@@ -21,9 +22,17 @@
         "yarn-upgrade-all": "^0.7.5"
     },
     "scripts": {
-        "verify": "scripts/loc/loc-keys-match && scripts/loc/loc-codes-in-extension-config && scripts/page-file-references-are-correct && yarn workspace @project/common run test && yarn workspace @project/client run test && yarn workspace @project/extension run test && yarn run eslint common extension/src client/src && yarn run pretty:check",
-        "pretty": "yarn prettier --write './(client|common|extension)/**/*.(js|ts|tsx|css)'",
-        "pretty:check": "yarn prettier --check './(client|common|extension)/**/*.(js|ts|tsx|css)'"
+        "fetch:ffmpeg:runtime": "yarn workspace @project/ffmpeg fetch",
+        "verify:ffmpeg:candidate": "yarn workspace @project/ffmpeg verify:candidate",
+        "verify:ffmpeg:native-wasm": "yarn workspace @project/ffmpeg test:native-wasm",
+        "verify:ffmpeg:locked": "yarn workspace @project/ffmpeg verify:locked:runtime",
+        "build:ffmpeg:candidate": "yarn workspace @project/ffmpeg build:runtime && yarn workspace @project/ffmpeg package:candidate && yarn workspace @project/ffmpeg verify:release",
+        "select:ffmpeg:runtime": "yarn workspace @project/ffmpeg select:runtime",
+        "verify": "yarn verify:ffmpeg:code && yarn verify:app",
+        "verify:app": "scripts/loc/loc-keys-match && scripts/loc/loc-codes-in-extension-config && scripts/page-file-references-are-correct && yarn workspace @project/common test && yarn workspace @project/client test && yarn workspace @project/extension test && yarn run eslint common extension/src client/src && yarn prettier --check './(client|common|extension)/**/*.(js|mjs|ts|tsx|css)'",
+        "verify:ffmpeg:code": "yarn workspace @project/ffmpeg test && yarn workspace @project/ffmpeg compile && yarn run eslint ffmpeg/src ffmpeg/tests ffmpeg/scripts && yarn prettier --check './ffmpeg/**/*.(js|mjs|ts|tsx|css)'",
+        "pretty": "yarn prettier --write './(client|common|extension|ffmpeg)/**/*.(js|mjs|ts|tsx|css)'",
+        "pretty:check": "yarn prettier --check './(client|common|extension|ffmpeg)/**/*.(js|mjs|ts|tsx|css)'"
     },
     "packageManager": "yarn@3.2.0",
     "resolutions": {

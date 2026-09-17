@@ -11,17 +11,17 @@ jobs:
     submit:
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v5
               with:
                   ref: ${{ inputs.releaseTag }}
-            - uses: actions/setup-node@v3
+            - uses: actions/setup-node@v5
               with:
                   node-version: 22
                   cache: 'npm'
             - run: npm install --global yarn
             - run: yarn set version 3.2.0
-            - run: yarn install
-            - run: yarn workspace @project/extension run zip:firefox
+            - run: yarn install --immutable
+            - run: yarn workspace @project/extension zip:firefox
             - name: Submit to stores
               working-directory: ./extension
               run: |
@@ -29,6 +29,6 @@ jobs:
                     --firefox-zip .output/*-firefox.zip --firefox-sources-zip .output/*-sources.zip \
                     --firefox-channel listed
               env:
-                  FIREFOX_EXTENSION_ID: "asbplayer-language-learning"
+                  FIREFOX_EXTENSION_ID: 'asbplayer-language-learning'
                   FIREFOX_JWT_ISSUER: ${{ secrets.FIREFOX_JWT_ISSUER }}
                   FIREFOX_JWT_SECRET: ${{ secrets.FIREFOX_JWT_SECRET }}

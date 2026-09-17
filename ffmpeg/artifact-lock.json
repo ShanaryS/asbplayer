@@ -1,0 +1,29 @@
+{
+    "schemaVersion": 1,
+    "runtimeVersion": "0.0.0",
+    "ffmpegVersion": "9.0.1",
+    "releaseUrl": "https://github.com/asbplayer/asbplayer/releases/tag/ffmpeg-v0.0.0",
+    "releaseBaseDownloadUrl": "https://github.com/asbplayer/asbplayer/releases/download/ffmpeg-v0.0.0",
+    "runtimeArchive": {
+        "filename": "asbplayer-ffmpeg-0.0.0-runtime.tar.gz",
+        "sha256": "da41260d8f3fa2c7d511f7215af8dccb9f2afef2c3af280814b68fbb20c409d8"
+    },
+    "sourceArchive": {
+        "filename": "asbplayer-ffmpeg-0.0.0-source.tar.xz",
+        "sha256": "0922e174de5e88e0c6135b3d20f9073042d7334b140f1b48505b7fbf9c1b21dc"
+    },
+    "manifestSha256": "4bae354a730ccd652142131a32fde1bed424729b4f9c1fa71fc023b2d230bd6d",
+    "runtimeFiles": {
+        "ffmpeg-core.js": "2f3912712de9f066adb464b7e8210ecf8f8115b66fa3e227dad87e0c6be5e70f",
+        "ffmpeg-core.wasm": "f31d4fc34d9534bcf70297c3a31def99a34c7d47afb782a0536afc10d03555d9",
+        "ffmpeg-worker.js": "1911bf174fe5a02edc16c76bdcd10046db91b0d304d9103c0dfa03cd90de0dfd",
+        "notices/Emscripten-MIT.txt": "620a78084fc7ca97c0b5dea9abf891f3ffcadfdbf305276f099c9c4e12fc1d86",
+        "notices/FFmpeg-LGPL-2.1.txt": "246041b6ecf9bc32d718a62c57877c78b5eb397b6467e74ed7ae2626ab189c30",
+        "notices/asbplayer-MIT.txt": "ea520146b29a52abed58e68464ea04dcd8a7b4a8b277342ac0d8c644c43a0fa7",
+        "notices/compiler-rt-LICENSE.txt": "1a8f1058753f1ba890de984e48f0242a3a5c29a6a8f2ed9fd813f36985387e8d",
+        "notices/libcxx-Apache-2.0.txt": "539dd7aed86e8a4f12cbdd0e6c50c189c7d74847e4fecc64ce2c6ee3a01da38b",
+        "notices/libcxxabi-LICENSE.txt": "e2b35be49f7284a45b7baca8fc7b3ab7440e7902392b2528a457816b5bb2a15c",
+        "notices/musl-COPYRIGHT.txt": "b870108ec5e7790e9f9919064f1b9421d62d5f9b0e6c230c6adf7ea2da62e97b",
+        "manifest.json": "4bae354a730ccd652142131a32fde1bed424729b4f9c1fa71fc023b2d230bd6d"
+    }
+}

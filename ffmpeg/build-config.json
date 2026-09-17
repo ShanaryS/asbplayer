@@ -1,0 +1,39 @@
+{
+    "schemaVersion": 1,
+    "ffmpeg": {
+        "version": "9.0.1",
+        "revision": "n9.0.1",
+        "source": {
+            "url": "https://ffmpeg.org/releases/ffmpeg-9.0.1.tar.xz",
+            "sha256": "cf38e0e28c7e5605942c4a77755349b0145804a397af37eb1fb4c77cb237f635"
+        }
+    },
+    "toolchain": {
+        "emscriptenVersion": "6.0.9",
+        "container": "emscripten/emsdk@sha256:3ba391c5b1554e06f9af0a69652ff20919dff14e771619339dba988bd62574b5",
+        "platform": "linux/amd64",
+        "bundler": { "name": "esbuild", "version": "0.25.9" }
+    },
+    "nativeLibraries": ["libavutil"],
+    "policy": {
+        "programs": false,
+        "network": false,
+        "protocols": false,
+        "devices": false,
+        "pthreads": false,
+        "sharedMemory": false,
+        "hardwareAcceleration": false,
+        "dynamicLibraries": false,
+        "autodetect": false,
+        "gpl": false,
+        "nonfree": false,
+        "version3": false
+    },
+    "limits": {
+        "initialMemoryBytes": 16777216,
+        "maximumMemoryBytes": 268435456,
+        "stackBytes": 1048576,
+        "maximumWasmBytes": 1000000
+    },
+    "implementedOperations": ["inspect"]
+}

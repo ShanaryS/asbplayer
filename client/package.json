@@ -11,6 +11,7 @@
         "@mui/material": "^6.4.8",
         "@mui/styles": "^6.4.8",
         "@project/common": "workspace:^",
+        "@project/ffmpeg": "workspace:^",
         "@types/node": "^22.13.14",
         "@types/react": "^19.1.8",
         "@vitejs/plugin-react": "^6.0.1",
@@ -31,7 +32,7 @@
         "buildFast": "VITE_APP_GIT_COMMIT=$(git rev-parse --short HEAD) vite build",
         "buildStaging": "yarn run verify && VITE_APP_GIT_COMMIT=$(git rev-parse --short HEAD) VITE_APP_BASE_PATH=\"/asbplayer-staging\" vite build",
         "preview": "vite preview",
-        "deploy": "gh-pages -d dist",
+        "deploy": "node scripts/deploy.mjs",
         "test": "jest"
     },
     "eslintConfig": {

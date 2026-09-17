@@ -1,0 +1,83 @@
+name: Release FFmpeg
+
+on:
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+jobs:
+    build:
+        runs-on: ubuntu-24.04
+        permissions:
+            contents: read
+        outputs:
+            ffmpeg-version: ${{ steps.ffmpeg-version.outputs.version }}
+        steps:
+            - uses: actions/checkout@v7
+              with:
+                  persist-credentials: false
+            - uses: actions/setup-node@v7
+              with:
+                  node-version: 22
+                  cache: yarn
+            - run: corepack enable
+            - run: yarn install --immutable
+            - name: Read FFmpeg runtime version
+              id: ffmpeg-version
+              run: |
+                  version="$(node -p "require('./ffmpeg/package.json').version")"
+                  echo "version=$version" >> "$GITHUB_OUTPUT"
+            - run: yarn build:ffmpeg:candidate
+            - uses: actions/upload-artifact@v7
+              with:
+                  name: ffmpeg-release-materials
+                  path: ffmpeg/release
+                  if-no-files-found: error
+
+    publish:
+        needs: build
+        runs-on: ubuntu-24.04
+        environment: ffmpeg-release
+        env:
+            GH_REPO: ${{ github.repository }}
+        permissions:
+            contents: write
+        steps:
+            - uses: actions/download-artifact@v8
+              with:
+                  name: ffmpeg-release-materials
+                  path: ffmpeg/release
+            - name: Verify downloaded release materials
+              working-directory: ffmpeg/release
+              run: sha256sum -c SHA256SUMS
+            - name: Confirm version has not already been released
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  FFMPEG_VERSION: ${{ needs.build.outputs.ffmpeg-version }}
+              run: |
+                  release_tag="ffmpeg-v$FFMPEG_VERSION"
+
+                  if gh release view "$release_tag" >/dev/null 2>&1; then
+                      echo "FFmpeg release $release_tag already exists" >&2
+                      exit 1
+                  fi
+
+                  if gh api --silent "repos/$GITHUB_REPOSITORY/git/ref/tags/$release_tag" >/dev/null 2>&1; then
+                      echo "FFmpeg tag $release_tag already exists" >&2
+                      exit 1
+                  fi
+            - name: Publish independent runtime/source release
+              run: >-
+                  gh release create "ffmpeg-v$FFMPEG_VERSION"
+                  "ffmpeg/release/asbplayer-ffmpeg-$FFMPEG_VERSION-runtime.tar.gz"
+                  "ffmpeg/release/asbplayer-ffmpeg-$FFMPEG_VERSION-source.tar.xz"
+                  ffmpeg/release/manifest.json
+                  ffmpeg/release/SHA256SUMS
+                  --target "$GITHUB_SHA"
+                  --title "asbplayer FFmpeg $FFMPEG_VERSION"
+                  --notes "Minimal single-threaded LGPL FFmpeg runtime and exact corresponding source."
+                  --latest=false
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  FFMPEG_VERSION: ${{ needs.build.outputs.ffmpeg-version }}

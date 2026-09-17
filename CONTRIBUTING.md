@@ -44,10 +44,14 @@ npm install --global yarn
 yarn set version 3.2.0
 
 # Install dependencies
-yarn
+yarn install --immutable
+
+# Fetch and verify the published FFmpeg runtime used by normal client builds
+yarn fetch:ffmpeg:runtime
+yarn verify:ffmpeg:locked
 
 # Starts the development server for the website
-yarn workspace @project/client run start
+yarn workspace @project/client start
 
 # Starts the dev server for the Chromium version of the extension to extension/.output/chrome-mv3-dev
 yarn workspace @project/extension dev
@@ -61,6 +65,8 @@ yarn workspace @project/extension dev:firefox-android
 # Push the Firefox for Android extension to a connected Android device
 ./scripts/push-firefox-android
 ```
+
+Most contributors should use the published, locked FFmpeg runtime above and do not need to build FFmpeg. Contributors changing FFmpeg should follow the candidate-build instructions in [ffmpeg/README.md](ffmpeg/README.md).
 
 If you have problems building try deleting `node_modules` and re-running `yarn`.
 

@@ -699,6 +699,9 @@ const settingsSchema = {
         subtitlesWidth: {
             type: 'number',
         },
+        subtitlesWidthUnit: {
+            type: 'string',
+        },
         streamingAppUrl: {
             type: 'string',
         },

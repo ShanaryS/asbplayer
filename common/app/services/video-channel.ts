@@ -583,6 +583,7 @@ export default class VideoChannel {
             subtitlePositionOffset: bottomSubtitlePositionOffset,
             topSubtitlePositionOffset,
             subtitlesWidth,
+            subtitlesWidthUnit,
         } = settings;
         const message: SubtitleSettingsToVideoMessage = {
             command: 'subtitleSettings',
@@ -605,6 +606,7 @@ export default class VideoChannel {
                 subtitlePositionOffset: bottomSubtitlePositionOffset,
                 topSubtitlePositionOffset,
                 subtitlesWidth,
+                subtitlesWidthUnit,
             },
         };
         this.protocol.postMessage(message);

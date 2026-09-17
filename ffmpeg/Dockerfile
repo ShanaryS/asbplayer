@@ -19,19 +19,19 @@ RUN mkdir -p /build/ffmpeg /output \
         || { tail -120 ffbuild/config.log; exit 1; } \
     && cp ffbuild/config.mak /output/config.mak \
     && cp config.h /output/config.h \
-    && emmake make -j"$(nproc)" libavutil/libavutil.a \
+    && emmake make -j"$(nproc)" libavutil/libavutil.a libavcodec/libavcodec.a libavformat/libavformat.a libswresample/libswresample.a \
     && em++ -std=c++23 -O3 -fno-exceptions -fno-rtti \
         -I/src/asbplayer/generated -I/src/asbplayer/native -I/src/asbplayer/native/include \
         -I/build/ffmpeg -I/src/ffmpeg \
         -c /src/asbplayer/native/runtime.cpp -o /build/runtime.o \
     && em++ -std=c++23 -O3 -fno-exceptions -fno-rtti --no-entry \
-        /build/runtime.o libavutil/libavutil.a \
+        /build/runtime.o libavformat/libavformat.a libavcodec/libavcodec.a libswresample/libswresample.a libavutil/libavutil.a \
         -o /output/ffmpeg-core.js \
         -sMODULARIZE=1 -sEXPORT_ES6=1 -sENVIRONMENT=worker \
-        -sFILESYSTEM=0 -sDYNAMIC_EXECUTION=0 \
+        -sFORCE_FILESYSTEM=0 -sDYNAMIC_EXECUTION=0 \
         -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=${ASB_INITIAL_MEMORY_BYTES} \
         -sMAXIMUM_MEMORY=${ASB_MAXIMUM_MEMORY_BYTES} -sSTACK_SIZE=${ASB_STACK_BYTES} \
-        -sEXPORTED_FUNCTIONS='["_asb_runtime_info_json"]' \
+        -sEXPORTED_FUNCTIONS='["_asb_runtime_info_json","_asb_transcode_audio","_asb_free","_asb_last_error","_malloc","_free"]' \
         -sEXPORTED_RUNTIME_METHODS='["UTF8ToString"]' \
         -Wl,-Map=/output/ffmpeg-core.map \
     && emnm --defined-only libavutil/libavutil.a > /output/linked-library-symbols.txt \

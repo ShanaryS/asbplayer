@@ -14,7 +14,7 @@
         "platform": "linux/amd64",
         "bundler": { "name": "esbuild", "version": "0.25.9" }
     },
-    "nativeLibraries": ["libavutil"],
+    "nativeLibraries": ["libavutil", "libavcodec", "libavformat", "libswresample"],
     "policy": {
         "programs": false,
         "network": false,
@@ -33,7 +33,7 @@
         "initialMemoryBytes": 16777216,
         "maximumMemoryBytes": 268435456,
         "stackBytes": 1048576,
-        "maximumWasmBytes": 1000000
+        "maximumWasmBytes": 12000000
     },
-    "implementedOperations": ["inspect"]
+    "implementedOperations": ["inspect", "transcodeAudio"]
 }

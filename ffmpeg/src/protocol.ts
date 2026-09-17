@@ -18,7 +18,11 @@ export type FfmpegRuntimeInfo = {
 type RequestBase = { sessionId: string; requestId: number };
 
 export type WorkerRequest = RequestBase &
-    ({ operation: 'initialize'; coreURL: string; wasmURL: string } | { operation: 'inspect' });
+    (
+        | { operation: 'initialize'; coreURL: string; wasmURL: string }
+        | { operation: 'inspect' }
+        | { operation: 'transcodeAudio'; input: ArrayBuffer; trackIndex: number }
+    );
 
 export type WorkerRequestBody = WorkerRequest extends infer Request
     ? Request extends RequestBase

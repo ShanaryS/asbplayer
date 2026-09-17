@@ -70,6 +70,8 @@ import type {
 import { createTheme } from '@project/common/theme/theme';
 import Alert from '@project/common/app/components/Alert';
 import type { AlertNotification } from '@project/common/app/components/Alert';
+import { useTranscodedAudio } from '@project/common/app/hooks/use-transcoded-audio';
+import AudioConversionModal from '@project/common/app/components/AudioConversionModal';
 import useSnackbar from '@project/common/hooks/use-snackbar';
 import {
     claimTokenSelectionFocus,
@@ -262,6 +264,9 @@ function PlayerComponent(
     const videoFile = sources?.videoFile;
     const videoFileUrl = sources?.videoFileUrl;
     const playbackPositionKey = videoFile?.file.name;
+    const transcodedAudio = useTranscodedAudio(videoFile);
+    const transcodedAudioUrl = transcodedAudio.url;
+    const transcodedAudioBlob = transcodedAudio.blob;
     const syntheticPlayback = videoFileUrl === undefined && tab === undefined;
     const playModeEnabled = subtitles && subtitles.length > 0 && Boolean(videoFileUrl);
     const [subtitlePlayerResizing, setSubtitlePlayerResizing] = useState<boolean>(false);
@@ -303,6 +308,30 @@ function PlayerComponent(
         open: pendingPlaybackPosition !== undefined,
         onClose: () => syntheticPlaybackEngineRef.current?.dismissPlaybackPosition(),
     });
+    const transcodedAudioPrompt = useMemo(
+        () => (
+            <>
+                {t('info.unsupportedAudioCodecPrompt', { codec: transcodedAudio.codecName })}
+                <Button
+                    size="small"
+                    color="inherit"
+                    style={{ pointerEvents: 'auto', marginLeft: 12 }}
+                    onClick={transcodedAudio.start}
+                >
+                    {t('info.unsupportedAudioCodecButton')}
+                </Button>
+                <Button
+                    size="small"
+                    color="inherit"
+                    style={{ pointerEvents: 'auto', marginLeft: 4 }}
+                    onClick={transcodedAudio.dismiss}
+                >
+                    {t('info.unsupportedAudioCodecDismissButton')}
+                </Button>
+            </>
+        ),
+        [t, transcodedAudio.codecName, transcodedAudio.start, transcodedAudio.dismiss]
+    );
     const [playbackState, setPlaybackState] = useState<PlaybackState>();
     const appBarHeight = useAppBarHeight();
     const classes = useStyles({ appBarHidden, appBarHeight });
@@ -948,6 +977,12 @@ function PlayerComponent(
         () => channel?.onReady(() => channel?.hideSubtitlePlayerToggle(hideSubtitlePlayer)),
         [channel, hideSubtitlePlayer]
     );
+    // Sent over the channel rather than as an iframe query parameter: changing the iframe src
+    // unloads the player frame, which the outer frame treats as the video being closed.
+    useEffect(
+        () => channel?.onReady(() => channel?.transcodedAudio(transcodedAudioUrl)),
+        [channel, transcodedAudioUrl]
+    );
     useEffect(() => channel?.ankiSettings(settings), [channel, settings]);
     useEffect(() => channel?.miscSettings(settings), [channel, settings]);
     useEffect(
@@ -1037,6 +1072,9 @@ function PlayerComponent(
                                       blobUrl: createBlobUrl(videoFile.file),
                                       audioTrack: channel?.selectedAudioTrack,
                                       playbackRate: channel?.playbackRate,
+                                      transcodedAudioBlobUrl: transcodedAudioBlob
+                                          ? createBlobUrl(transcodedAudioBlob)
+                                          : undefined,
                                   }
                                 : undefined,
                             audio,
@@ -1047,7 +1085,7 @@ function PlayerComponent(
                         id
                     )
             ),
-        [channel, onCopy, videoFile, subtitleFiles]
+        [channel, onCopy, videoFile, subtitleFiles, transcodedAudioBlob]
     );
     useEffect(() => {
         if (channel === undefined) return;
@@ -1205,6 +1243,9 @@ function PlayerComponent(
                                       audioTrack: selectedAudioTrack,
                                       playbackRate,
                                       blobUrl: createBlobUrl(videoFile.file),
+                                      transcodedAudioBlobUrl: transcodedAudioBlob
+                                          ? createBlobUrl(transcodedAudioBlob)
+                                          : undefined,
                                   },
                         ...cardTextFieldValues,
                     },
@@ -1213,7 +1254,17 @@ function PlayerComponent(
                 );
             }
         },
-        [channel, onCopy, clock, videoFile, videoFileUrl, subtitleFiles, selectedAudioTrack, playbackRate]
+        [
+            channel,
+            onCopy,
+            clock,
+            videoFile,
+            videoFileUrl,
+            subtitleFiles,
+            selectedAudioTrack,
+            playbackRate,
+            transcodedAudioBlob,
+        ]
     );
 
     const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -1537,6 +1588,33 @@ function PlayerComponent(
                 notifications={alert.notifications}
                 useAppLogo={false}
                 anchor="top"
+            />
+            <Alert
+                open={transcodedAudio.state === 'prompting'}
+                useAppLogo={false}
+                onClose={transcodedAudio.dismiss}
+                autoHideDuration={0}
+                disableAutoHide={true}
+                severity="info"
+                anchor="top"
+            >
+                {transcodedAudioPrompt}
+            </Alert>
+            <Alert
+                open={transcodedAudio.state === 'failed'}
+                useAppLogo={false}
+                onClose={transcodedAudio.dismiss}
+                autoHideDuration={0}
+                disableAutoHide={true}
+                severity="error"
+                anchor="top"
+            >
+                {t('error.audioConversionFailed')}
+            </Alert>
+            <AudioConversionModal
+                open={transcodedAudio.state === 'transcoding'}
+                progress={transcodedAudio.progress}
+                onCancel={transcodedAudio.dismiss}
             />
             {!videoInWindow && statisticsOverlay}
             <Grid container direction="row" wrap="nowrap" className={classes.container}>

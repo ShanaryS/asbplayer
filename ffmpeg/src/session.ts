@@ -4,7 +4,7 @@ import { isWorkerReply } from '@project/ffmpeg/protocol';
 import type { FfmpegErrorCode, FfmpegRuntimeInfo, WorkerRequest, WorkerRequestBody } from '@project/ffmpeg/protocol';
 
 export type FfmpegWorker = {
-    postMessage(message: WorkerRequest): void;
+    postMessage(message: WorkerRequest, transfer?: Transferable[]): void;
     terminate(): void;
     addEventListener(type: 'message' | 'error' | 'messageerror', listener: (event: any) => void): void;
     removeEventListener(type: 'message' | 'error' | 'messageerror', listener: (event: any) => void): void;
@@ -23,6 +23,7 @@ export class FfmpegError extends Error {
 export type FfmpegRuntime = {
     /** Aborting inspection cancels only that inspection; use session.dispose() to stop the shared worker. */
     inspect(options?: { signal?: AbortSignal }): Promise<FfmpegRuntimeInfo>;
+    transcodeAudio(options: { input: ArrayBuffer; trackIndex: number; signal?: AbortSignal }): Promise<ArrayBuffer>;
 };
 
 export type CreateFfmpegSessionOptions = {
@@ -144,7 +145,8 @@ export const createFfmpegSession = ({
             if (signal?.aborted) cancel();
             if (!pending.has(id)) return;
             try {
-                worker!.postMessage(message);
+                const transfer = operation.operation === 'transcodeAudio' ? [operation.input] : undefined;
+                worker!.postMessage(message, transfer);
             } catch (error) {
                 pending.delete(id);
                 cleanup();
@@ -186,6 +188,12 @@ export const createFfmpegSession = ({
                 return Promise.reject(new FfmpegError('disposed', 'The FFmpeg session is not ready'));
             }
             return request({ operation: 'inspect' }, signal);
+        },
+        transcodeAudio: ({ input, trackIndex, signal }) => {
+            if (state !== 'ready') {
+                return Promise.reject(new FfmpegError('disposed', 'The FFmpeg session is not ready'));
+            }
+            return request<ArrayBuffer>({ operation: 'transcodeAudio', input, trackIndex }, signal);
         },
     };
 

@@ -189,4 +189,25 @@ describe('PlayerChannel playback state', () => {
         expect(received).toEqual([PlayMode.fastForward]);
         channel.close();
     });
+
+    it('receives the transcoded audio URL and supports clearing it', () => {
+        const channel = new PlayerChannel('test-channel');
+        const broadcastChannel = TestBroadcastChannel.instance!;
+        const received: (string | undefined)[] = [];
+        channel.onTranscodedAudio((url) => received.push(url));
+
+        broadcastChannel.onmessage?.(
+            new MessageEvent('message', {
+                data: { command: 'transcodedAudio', audioFileUrl: 'blob:audio' },
+            })
+        );
+        broadcastChannel.onmessage?.(
+            new MessageEvent('message', {
+                data: { command: 'transcodedAudio' },
+            })
+        );
+
+        expect(received).toEqual(['blob:audio', undefined]);
+        channel.close();
+    });
 });

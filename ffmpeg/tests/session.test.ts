@@ -19,6 +19,7 @@ class FakeWorker implements FfmpegWorker {
     readonly messages: WorkerRequest[] = [];
     readonly terminate = jest.fn();
     responseInfo = runtimeInfo();
+    transcodeResult = new Uint8Array([1, 2, 3]).buffer;
     autoReply = true;
 
     postMessage(message: WorkerRequest) {
@@ -31,7 +32,7 @@ class FakeWorker implements FfmpegWorker {
                         sessionId: message.sessionId,
                         requestId: message.requestId,
                         ok: true,
-                        result: this.responseInfo,
+                        result: message.operation === 'transcodeAudio' ? this.transcodeResult : this.responseInfo,
                     },
                 })
             )
@@ -63,6 +64,21 @@ describe('FFmpeg session', () => {
         expect(worker.messages.map(({ operation }) => operation)).toEqual(['initialize', 'inspect']);
         expect(session.state).toBe('ready');
         expect(worker.terminate).not.toHaveBeenCalled();
+    });
+
+    it('transcodes through the worker boundary and returns the encoded bytes', async () => {
+        const worker = new FakeWorker();
+        const session = createFfmpegSession({
+            assetBaseUrl: 'https://example.test/ffmpeg/',
+            workerFactory: () => worker,
+        });
+        const runtime = await session.load();
+        const input = new Uint8Array([9, 8, 7]).buffer;
+
+        await expect(runtime.transcodeAudio({ input, trackIndex: 0 })).resolves.toEqual(
+            new Uint8Array([1, 2, 3]).buffer
+        );
+        expect(worker.messages[1]).toMatchObject({ operation: 'transcodeAudio', trackIndex: 0, input });
     });
 
     it('rejects an already-aborted load without creating a worker', async () => {

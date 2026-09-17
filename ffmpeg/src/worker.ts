@@ -3,7 +3,7 @@ import type { NativeModule } from '@project/ffmpeg/native';
 import type { WorkerReply, WorkerReplyBody, WorkerRequest } from '@project/ffmpeg/protocol';
 
 type WorkerScope = {
-    postMessage(message: WorkerReply): void;
+    postMessage(message: WorkerReply, transfer?: Transferable[]): void;
     onmessage: ((event: MessageEvent<WorkerRequest>) => void) | null;
 };
 
@@ -11,8 +11,8 @@ const scope = self as unknown as WorkerScope;
 let bridge: NativeBridge | undefined;
 let sessionId: string | undefined;
 
-const reply = (request: WorkerRequest, value: WorkerReplyBody) =>
-    scope.postMessage({ sessionId: request.sessionId, requestId: request.requestId, ...value });
+const reply = (request: WorkerRequest, value: WorkerReplyBody, transfer?: Transferable[]) =>
+    scope.postMessage({ sessionId: request.sessionId, requestId: request.requestId, ...value }, transfer);
 
 const handleRequest = async (request: WorkerRequest) => {
     if (
@@ -41,6 +41,18 @@ const handleRequest = async (request: WorkerRequest) => {
             throw new Error('Worker session identity mismatch');
         if (request.operation === 'inspect') {
             reply(request, { ok: true, result: bridge.inspect() });
+            return;
+        }
+        if (request.operation === 'transcodeAudio') {
+            if (
+                !(request.input instanceof ArrayBuffer) ||
+                !Number.isInteger(request.trackIndex) ||
+                request.trackIndex < 0
+            ) {
+                throw new Error('Invalid FFmpeg audio transcode request');
+            }
+            const output = bridge.transcodeAudio(request.input, request.trackIndex);
+            reply(request, { ok: true, result: output }, [output]);
             return;
         }
         reply(request, { ok: false, error: { code: 'unsupported', message: 'Unsupported FFmpeg operation' } });

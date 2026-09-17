@@ -6,6 +6,7 @@ import type {
     AudioTrackModel,
     AudioTrackSelectedFromVideoMessage,
     AudioTrackSelectedToVideoMessage,
+    TranscodedAudioToVideoMessage,
     CardTextFieldValues,
     CopyMessage,
     CopyToVideoMessage,
@@ -57,6 +58,7 @@ export default class PlayerChannel {
     private latestPlaybackState?: PlaybackStateFromVideoMessage;
     private currentTimeCallbacks: ((currentTime: number) => void)[];
     private audioTrackSelectedCallbacks: ((id: string) => void)[];
+    private transcodedAudioCallbacks: ((audioFileUrl: string | undefined) => void)[];
     private closeCallbacks: (() => void)[];
     private subtitlesCallbacks: ((subtitles: SubtitleModel[], subtitleFileName: string) => void)[];
     private subtitlesUpdatedCallbacks: ((updatedSubtitles: readonly IndexedSubtitleModel[]) => void)[];
@@ -91,6 +93,7 @@ export default class PlayerChannel {
         this.playbackStateCallbacks = [];
         this.currentTimeCallbacks = [];
         this.audioTrackSelectedCallbacks = [];
+        this.transcodedAudioCallbacks = [];
         this.closeCallbacks = [];
         this.readyCallbacks = [];
         this.subtitlesCallbacks = [];
@@ -152,6 +155,14 @@ export default class PlayerChannel {
 
                     for (const callback of this.audioTrackSelectedCallbacks) {
                         callback(audioTrackSelectedMessage.id);
+                    }
+                    break;
+                }
+                case 'transcodedAudio': {
+                    const transcodedAudioMessage = event.data as TranscodedAudioToVideoMessage;
+
+                    for (const callback of this.transcodedAudioCallbacks) {
+                        callback(transcodedAudioMessage.audioFileUrl);
                     }
                     break;
                 }
@@ -315,6 +326,11 @@ export default class PlayerChannel {
     onAudioTrackSelected(callback: (id: string) => void) {
         this.audioTrackSelectedCallbacks.push(callback);
         return () => this._remove(callback, this.audioTrackSelectedCallbacks);
+    }
+
+    onTranscodedAudio(callback: (audioFileUrl: string | undefined) => void) {
+        this.transcodedAudioCallbacks.push(callback);
+        return () => this._remove(callback, this.transcodedAudioCallbacks);
     }
 
     onClose(callback: () => void) {
@@ -564,6 +580,7 @@ export default class PlayerChannel {
             this.latestPlaybackState = undefined;
             this.currentTimeCallbacks = [];
             this.audioTrackSelectedCallbacks = [];
+            this.transcodedAudioCallbacks = [];
             this.closeCallbacks = [];
             this.readyCallbacks = [];
             this.subtitlesCallbacks = [];

@@ -68,6 +68,8 @@ import PlayerChannel from '@project/common/app/services/player-channel';
 import type ChromeExtension from '@project/common/app/services/chrome-extension';
 import Alert from '@project/common/app/components/Alert';
 import type { AlertNotification } from '@project/common/app/components/Alert';
+import { useExternalAudioTrack } from '@project/common/app/hooks/use-external-audio-track';
+import { addBlobUrl } from '@project/common/blob-url';
 import Button from '@mui/material/Button';
 import { useSubtitleDomCache } from '@project/common/app/hooks/use-subtitle-dom-cache';
 import { useAppKeyBinder } from '@project/common/app/hooks/use-app-key-binder';
@@ -297,6 +299,7 @@ interface Props {
     onAnkiDialogRequest: (
         videoFileUrl: string,
         videoFileName: string,
+        transcodedAudioFileUrl: string | undefined,
         selectedAudioTrack: string | undefined,
         playbackRate: number,
         subtitle: SubtitleModel,
@@ -368,6 +371,16 @@ export default function VideoPlayer({
     const profileRef = useRef(profile);
     const hiddenVideoRef = useRef<HTMLVideoElement | null>(null); // seek preview thumbnail
     const [hiddenVideoReady, setHiddenVideoReady] = useState(false);
+    const [audioFile, setAudioFile] = useState<string>();
+    const audioFileRef = useRef<string>(undefined);
+    audioFileRef.current = audioFile;
+    const externalAudioRef = useRef<HTMLAudioElement | null>(null);
+    const [externalAudio, setExternalAudio] = useState<HTMLAudioElement | null>(null);
+    const externalAudioRefCallback = useCallback((element: HTMLAudioElement | null) => {
+        externalAudioRef.current = element;
+        setExternalAudio(element);
+    }, []);
+    useExternalAudioTrack({ video, audio: audioFile === undefined ? null : externalAudio });
     const [windowWidth, windowHeight] = useWindowSize(true);
     if (videoRef.current) {
         videoRef.current.width = windowWidth;
@@ -840,6 +853,14 @@ export default function VideoPlayer({
             selectAudioTrack(id);
             setSelectedAudioTrack(id);
             playerChannel.audioTrackSelected(id);
+        });
+
+        playerChannel.onTranscodedAudio((audioFileUrl) => {
+            if (audioFileUrl !== undefined) {
+                addBlobUrl(audioFileUrl);
+            }
+
+            setAudioFile(audioFileUrl);
         });
 
         playerChannel.onClose(() => {
@@ -1416,6 +1437,7 @@ export default function VideoPlayer({
                     onAnkiDialogRequest(
                         videoFileUrl,
                         videoFileName ?? '',
+                        audioFileRef.current,
                         selectedAudioTrack,
                         playbackRate,
                         subtitle,
@@ -1852,6 +1874,11 @@ export default function VideoPlayer({
         if (videoRef.current) {
             videoRef.current.volume = volume;
         }
+
+        // The external audio track is the audible one when it's in use
+        if (externalAudioRef.current) {
+            externalAudioRef.current.volume = volume;
+        }
     }, []);
 
     const handlePopOutToggle = useCallback(() => {
@@ -2192,6 +2219,10 @@ export default function VideoPlayer({
                 src={videoFile}
                 onMouseOver={handleVideoMouseOver}
             />
+            {/* this audio replaces the video's own audio track when the browser can't decode it */}
+            {audioFile !== undefined && (
+                <audio src={audioFile} preload="auto" style={{ display: 'none' }} ref={externalAudioRefCallback} />
+            )}
             {/* Optional blur mask overlay; constrained to the video bounds within the player container */}
             {blurOverlayVisible && <BlurOverlay anchorRef={containerRef} containerRef={videoRef} />}
             {/* this video is for getting the seek preview below */}

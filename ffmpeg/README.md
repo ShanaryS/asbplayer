@@ -2,7 +2,7 @@
 
 This workspace builds an independently versioned FFmpeg dependency for the webapp/PWA. The browser loads a versioned module worker lazily. The worker loads a single-threaded WebAssembly module and exposes runtime inspection so asbplayer can verify the selected build.
 
-The foundation intentionally contains no media processing. It links only FFmpeg's `libavutil`; it has no codecs, containers, filters, network protocols, devices, or arbitrary command interface. FFmpeg's `--disable-everything` configuration enables `libavutil` as its base library, so the build does not explicitly enable it. Future feature work should add only the FFmpeg components, typed worker operation, app integration, and production-WASM checks that capability requires.
+The runtime intentionally contains only the media processing needed by asbplayer. It links FFmpeg's `libavutil`, `libavcodec`, `libavformat`, and `libswresample`, with AC-3, E-AC-3, DTS, TrueHD, and MLP decoders plus an AAC encoder. It has no filters, network protocols, devices, or arbitrary command interface. The typed worker API exposes runtime inspection and audio transcoding to an MP4/AAC output.
 
 `ffmpeg/package.json` owns the candidate version being developed. `artifact-lock.json` selects the released runtime consumed by normal asbplayer builds. Candidate builds use the package version; normal app builds use the locked release. This lets application development use a published runtime while FFmpeg development proceeds independently. Runtime assets are immutable at `/ffmpeg/${runtimeVersion}/`; the PWA caches those URLs on first use without adding the runtime to its startup download.
 

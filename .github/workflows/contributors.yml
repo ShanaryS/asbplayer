@@ -31,6 +31,6 @@ jobs:
             - name: Check contributor licensing
               run: node --experimental-strip-types scripts/check-contributors.ts
               env:
-                  CONTRIBUTORS_BYPASS: ${{ vars.CONTRIBUTORS_BYPASS }}
+                  CONTRIBUTORS_BYPASS: ${{ secrets.CONTRIBUTORS_BYPASS }}
                   CONTRIBUTORS_BASE_SHA: ${{ github.event.pull_request.base.sha }}
                   CONTRIBUTORS_HEAD_SHA: ${{ github.event.pull_request.head.sha }}

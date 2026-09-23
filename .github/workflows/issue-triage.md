@@ -77,7 +77,7 @@ Do not make assumptions beyond what the issue content supports. Do not invent mi
 Use this structure for your duplicate issues comment
 
 ```markdown
-### 🔗 Similar issues
+### Similar issues
 
 - issue-url (duplicate/related) — [brief explanation]
 

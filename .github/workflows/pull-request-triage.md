@@ -24,18 +24,19 @@ network:
 
 permissions: read-all
 safe-outputs:
+  threat-detection: false
   add-labels:
     allowed: ["pr-p1", "pr-p2", "pr-p3"]
-    max: 1
+    max: 50
   remove-labels:
     allowed: ["pr-p1", "pr-p2", "pr-p3"]
-    max: 1
+    max: 50
 
 tools:
   bash: false
   web-fetch:
   github:
-    toolsets: [pull_requests]
+    toolsets: [pull_requests, repos]
     min-integrity: none
 
 timeout-minutes: 60
@@ -50,14 +51,18 @@ score = maintainer + benefit + confidence + momentum
 ```
 
 The variables are defined as follows:
-  - `maintainer`: Value of 50 if the PR is authored by a user with `author_association` equal to `MEMBER` or `OWNER`. 0 otherwise.
-  - `benefit`: Value in the closed interval of 0-20. Highly beneficial PRs benefit either users or developers in a way that's aligned with the purpose of the asbplayer project. Read `docs/docs/intro.md`, and other documentation under `docs/docs` to understand what asbplayer is and what features already exist.
-  - `confidence`: Value in the closed interval of 0-20. Represents the likelihood that the PR is of high quality and will require less effort to review.
+  - `maintainer`: Value of 50 if the PR is authored by a user with `author_association` equal to `MEMBER`, `COLLABORATOR`, or `OWNER`. 0 otherwise. Use the `search_pull_requests` tool to obtain the `author_association`.
+  - `benefit`: Value in the closed interval of 0-20. Highly beneficial PRs benefit either users or developers in a way that's aligned with the purpose of the asbplayer project. Read `docs/docs/intro.md`, and other documentation under `docs/docs`, using the `get_file_contents` tool to understand what asbplayer is and what features already exist.
+  - `confidence`: Value in the closed interval of 0-20. Represents the likelihood that the PR is of high quality and will require less effort to review. Skim the PR diff to inform this value.
   - `momentum`: Value in the closed interval of 0-10. Represents the likelihood that the author will respond. For example, old PRs, and PRs where a maintainer has commented and the author has not responded in a long time, have less momentum. Recent PRs created by active contributors have more momentum. 
 
 Use the score to assign the PR one of the following labels:
- - `pr-p1`: 75 <= score <= 100
- - `pr-p2`: 50 <= score < 75
- - `pr-p3`: 0 <= score < 50
+ - `pr-p1`: 60 <= score <= 100
+ - `pr-p2`: 30 <= score < 60
+ - `pr-p3`: 0 <= score < 30
   
-Each PR should have exactly one of the above labels. If it already has one of the above labels, it should be removed first.
+Each PR should have exactly one of the above labels. If it already has one of the above labels, it should be removed first. If it already has the correct label, leave it as is.
+
+## Handling read failures
+
+If a PR's diff cannot be retrieved (for example, the response is too large), do not stop and do not abandon the remaining PRs. Score that PR from its available metadata (title, body, changed files, checks, comments) with a lower `confidence` value, note the uncertainty in the label rationale, and continue with the remaining PRs. Do not give up on reading the remaining PR diffs because of a single failure - future reads on different PRs may succeed. Label every PR you scored, even if some could not be fully analyzed. Only call `missing_tool` or `missing_data` if reads fail for all PRs.

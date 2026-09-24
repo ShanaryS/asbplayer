@@ -14,7 +14,7 @@ on:
         required: true
         type: string
 
-model: gpt-5.6-luna
+model: gpt-6-luna
 max-ai-credits: -1 # Bypass built-in pricing table
 engine:
   id: codex

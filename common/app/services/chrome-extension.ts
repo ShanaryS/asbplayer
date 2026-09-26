@@ -60,7 +60,7 @@ import type {
     AckTabsMessage,
     BrowserFeatures,
 } from '@project/common';
-import { buildSubtitleTracks } from '@project/common/util';
+import { asbError, buildSubtitleTracks } from '@project/common/util';
 import type { DictionaryStatisticsSnapshot } from '@project/common/dictionary-statistics';
 import type {
     DictionaryLocalTokenInput,
@@ -426,7 +426,9 @@ export default class ChromeExtension {
                 src: src,
             };
             window.postMessage(command);
-            void this._createResponsePromise(messageId).then(callback);
+            void this._createResponsePromise(messageId)
+                .then(callback)
+                .catch((error) => asbError('app/extension', 'Failed to receive a video response:', error));
         }
     }
 

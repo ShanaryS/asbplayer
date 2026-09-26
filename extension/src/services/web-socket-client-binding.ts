@@ -1,3 +1,4 @@
+import { asbError } from '@project/common/util';
 import type { SettingsProvider } from '@project/common/settings';
 import { ankiSettingsKeys } from '@project/common/settings';
 import type {
@@ -191,7 +192,9 @@ export const bindWebSocketClient = async (settings: SettingsProvider, tabRegistr
     }
 
     client = new WebSocketClient();
-    void client.bind(url);
+    void client.bind(url).catch((error) => {
+        asbError('web-socket', 'Failed to connect to the WebSocket server:', error);
+    });
 
     const ankiFieldValues = async (receivedFields: { [key: string]: string }): Promise<CardTextFieldValues> => {
         const ankiSettings = await settings.get(ankiSettingsKeys);

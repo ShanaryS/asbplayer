@@ -6,8 +6,11 @@ import { AppExtensionDictionaryStorage } from '@project/common/app/services/app-
 import { AppExtensionSettingsStorage } from '@project/common/app/services/app-extension-settings-storage';
 import { AppExtensionGlobalStateProvider } from '@project/common/app/services/app-extension-global-state-provider';
 import { SettingsProvider } from '@project/common/settings';
+import { asbError, configureLogProvider, LogProvider } from '@project/common/util';
+import { IndexedDBLogStore } from '@project/common/util/indexed-db-log-store';
 import { LocalDictionaryStorage } from '@project/client/src/local-dictionary-storage';
 import { LocalSettingsStorage } from '@project/client/src/local-settings-storage';
+import { AppExtensionLogStorage } from '@project/common/app/services/app-extension-log-storage';
 
 interface Props {
     origin: string;
@@ -25,6 +28,18 @@ const WebsiteApp = (props: Props) => {
         if (extension.version) window.plausible?.('extension_version', { props: { version: extension.version } });
     }, [extension.version]);
     const settingsProvider = useMemo(() => new SettingsProvider(settingsStorage), [settingsStorage]);
+    const localLogStore = useMemo(() => new IndexedDBLogStore(), []);
+    const logProvider = useMemo(
+        () => new LogProvider(extension.supportsLogs ? new AppExtensionLogStorage(extension) : localLogStore),
+        [extension, localLogStore]
+    );
+    useEffect(() => {
+        const configured = configureLogProvider(logProvider);
+        if (!extension.supportsLogs) return;
+        void configured
+            .then(() => localLogStore.delete()) // Discard logs written locally before the extension was detected
+            .catch((error) => asbError('app/log-storage', 'Failed to delete local log database', error));
+    }, [extension.supportsLogs, localLogStore, logProvider]);
     const dictionaryStorage = useMemo(() => {
         if (extension.supportsDictionary) return new AppExtensionDictionaryStorage(extension);
         return new LocalDictionaryStorage(settingsProvider);
@@ -38,6 +53,7 @@ const WebsiteApp = (props: Props) => {
             settingsStorage={settingsStorage}
             settingsProvider={settingsProvider}
             globalStateProvider={globalStateProvider}
+            logProvider={logProvider}
         />
     );
 };

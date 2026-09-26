@@ -1619,7 +1619,7 @@ describe('refreshing the Anki card browser after an update', () => {
 
         await expect(anki.export(exportArguments('updateLast'))).resolves.toBe(42);
         expect(consoleError).toHaveBeenCalledWith(
-            '[asbplayer][anki/connect]',
+            expect.stringContaining('[asbplayer][anki/connect]'),
             'Failed to refresh Anki card browser after updating note:',
             expect.any(Error)
         );

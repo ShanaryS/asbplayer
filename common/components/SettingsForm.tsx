@@ -25,6 +25,7 @@ import type { KeyboardShortcutSection } from '@project/common/components/Keyboar
 import StreamingVideoSettingsTab from '@project/common/components/StreamingVideoSettingsTab';
 import MiscSettingsTab from '@project/common/components/MiscSettingsTab';
 import type { DictionaryProvider } from '@project/common/dictionary-db';
+import type { LogProvider } from '@project/common/util';
 import TutorialBubble from '@project/common/components/TutorialBubble';
 import type { TutorialBubbleProps } from '@project/common/components/TutorialBubble';
 
@@ -174,6 +175,7 @@ interface Props {
     extensionInstalled: boolean;
     extensionVersion?: string;
     extensionSupportsAppIntegration: boolean;
+    extensionSupportsLogs: boolean;
     extensionSupportsOverlay: boolean;
     extensionSupportsSidePanel: boolean;
     extensionSupportsOrderableAnkiFields: boolean;
@@ -197,6 +199,7 @@ interface Props {
     insideApp?: boolean;
     appVersionRepoPath?: string;
     dictionaryProvider: DictionaryProvider;
+    logProvider: LogProvider;
     settings: AsbplayerSettings;
     profiles: Profile[];
     activeProfile?: string;
@@ -221,6 +224,7 @@ interface Props {
 export default function SettingsForm({
     anki,
     dictionaryProvider,
+    logProvider,
     settings,
     profiles,
     activeProfile,
@@ -228,6 +232,7 @@ export default function SettingsForm({
     extensionInstalled,
     extensionVersion,
     extensionSupportsAppIntegration,
+    extensionSupportsLogs,
     extensionSupportsOverlay,
     extensionSupportsSidePanel,
     extensionSupportsSubtitleTrackSelectorInWebApp,
@@ -276,6 +281,7 @@ export default function SettingsForm({
     const supportsPlaybackEngine = !extensionInstalled || extensionSupportsPlaybackEngine;
     const supportsSubtitleListCustomization = !extensionInstalled || extensionSupportsSubtitleListCustomization;
     const supportsAutoPauseResume = !extensionInstalled || extensionSupportsAutoPauseResume;
+    const supportsLogs = !extensionInstalled || extensionSupportsLogs;
     const theme = useTheme();
     const settingsTheme = useMemo(
         () =>
@@ -586,6 +592,8 @@ export default function SettingsForm({
                         settings={settings}
                         onSettingChanged={handleSettingChanged}
                         onSettingsChanged={onSettingsChanged}
+                        logProvider={logProvider}
+                        supportsLogs={supportsLogs}
                         supportedLanguages={supportedLanguages}
                         insideApp={insideApp}
                         extensionInstalled={extensionInstalled}

@@ -1,4 +1,5 @@
-import { asbError } from '@project/common/util';
+import { asbError, configureLogProvider, isLogLine, LogProvider } from '@project/common/util';
+import { IndexedDBLogStore } from '@project/common/util/indexed-db-log-store';
 import type { Asbplayer } from '@/services/tab-registry';
 import TabRegistry from '@/services/tab-registry';
 import ImageCapturer from '@/services/image-capturer';
@@ -81,6 +82,29 @@ import StatisticsOverlayForwarderHandler from '@/handlers/statistics-overlay/sta
 import OpenStatisticsOverlayHandler from '@/handlers/open-statistics-overlay-handler';
 
 export default defineBackground(() => {
+    const logStore = new IndexedDBLogStore();
+    void configureLogProvider(new LogProvider(logStore));
+
+    browser.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+        const command = request?.message?.command;
+        if (command === 'append-logs') {
+            const lines = Array.isArray(request.message.lines) ? request.message.lines.filter(isLogLine) : [];
+            // Always respond so the sender's write queue is not stalled; there is nowhere to report a failed write.
+            const respond = () => sendResponse({});
+            void logStore.append(lines).then(respond, respond);
+            return true;
+        }
+        if (command === 'get-logs') {
+            void logStore
+                .getLogs()
+                .then(sendResponse, (error) =>
+                    sendResponse({ error: error instanceof Error ? error.message : String(error) })
+                );
+            return true;
+        }
+        return false;
+    });
+
     if (!isFirefoxBuild) {
         void browser.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_AND_UNTRUSTED_CONTEXTS' });
     }

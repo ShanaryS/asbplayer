@@ -70,7 +70,7 @@ export default defineConfig({
         },
     },
     manifest: ({ browser, mode }) => {
-        const version = '1.21.0';
+        const version = '1.22.0';
         const isDev = mode === 'development';
         const devLabel = isDev ? ' (Dev)' : '';
         const title = `${extName}${devLabel}`;
@@ -91,6 +91,7 @@ export default defineConfig({
                 {
                     resources: [
                         'chunks/*',
+                        'page-log-bridge.js',
                         'fonts/*',
                         'asbplayer-locales/*',
                         'icon/image.png',

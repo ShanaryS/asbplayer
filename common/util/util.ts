@@ -118,12 +118,21 @@ export function keysAreEqual(a: any, b: any) {
     return aKeys.every((key) => Object.prototype.hasOwnProperty.call(b, key));
 }
 
-export const localizedDate = (timestamp: number, locales: Intl.LocalesArgument = [], timeZone?: string) => {
-    return new Date(timestamp).toLocaleTimeString(locales, {
+export interface LocalizedDateOptions {
+    locales?: Intl.LocalesArgument;
+    timeZone?: string;
+    hour12?: boolean;
+    includeMilliseconds?: boolean;
+}
+
+export const localizedDate = (timestamp: number, options: LocalizedDateOptions = {}) => {
+    return new Date(timestamp).toLocaleTimeString(options.locales ?? [], {
         hour: '2-digit',
         minute: '2-digit',
         second: '2-digit',
-        timeZone,
+        hour12: options.hour12,
+        fractionalSecondDigits: options.includeMilliseconds ? 3 : undefined,
+        timeZone: options.timeZone,
     });
 };
 

@@ -4,10 +4,12 @@ import { afterEach, beforeAll, expect, it } from '@jest/globals';
 import type {
     PageDelegate as PageDelegateClass,
     pageDelegateForUrl as PageDelegateForUrlFunction,
+    injectPageScript as InjectPageScriptFunction,
 } from '@project/extension/src/services/pages';
 
 let PageDelegate: typeof PageDelegateClass;
 let pageDelegateForUrl: typeof PageDelegateForUrlFunction;
+let injectPageScript: typeof InjectPageScriptFunction;
 
 beforeAll(async () => {
     const storage = {
@@ -27,10 +29,21 @@ beforeAll(async () => {
     const pages = await import('@project/extension/src/services/pages');
     PageDelegate = pages.PageDelegate;
     pageDelegateForUrl = pages.pageDelegateForUrl;
+    injectPageScript = pages.injectPageScript;
 });
 
 afterEach(() => {
     document.body.replaceChildren();
+    document.head.replaceChildren();
+});
+
+it('appends the log bridge before the page script', () => {
+    const pageScript = injectPageScript('youtube-page.js');
+    const scripts = Array.from(document.head.querySelectorAll('script'));
+
+    expect(scripts.map((script) => script.getAttribute('src'))).toEqual(['page-log-bridge.js', 'youtube-page.js']);
+    expect(scripts.every((script) => script.async === false)).toBe(true);
+    expect(pageScript.parentElement).toBe(document.head);
 });
 
 it('page settings and page configs are consistent', () => {

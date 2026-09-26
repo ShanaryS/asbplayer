@@ -17,6 +17,7 @@ import IconButton from '@mui/material/IconButton';
 import CloseIcon from '@mui/icons-material/Close';
 import type { Theme } from '@mui/material';
 import type { DictionaryProvider } from '@project/common/dictionary-db';
+import type { LogProvider } from '@project/common/util';
 import { useAnnotationTutorial } from '@project/common/hooks/use-annotation-tutorial';
 import { AppExtensionGlobalStateProvider } from '@project/common/app/services/app-extension-global-state-provider';
 
@@ -49,6 +50,7 @@ interface Props {
     extension: ChromeExtension;
     open: boolean;
     dictionaryProvider: DictionaryProvider;
+    logProvider: LogProvider;
     settings: AsbplayerSettings;
     scrollToId?: string;
     onSettingsChanged: (settings: Partial<AsbplayerSettings>) => void;
@@ -65,6 +67,7 @@ export default function SettingsDialog({
     extension,
     open,
     dictionaryProvider,
+    logProvider,
     settings,
     scrollToId,
     onSettingsChanged,
@@ -104,6 +107,7 @@ export default function SettingsDialog({
                     extensionInstalled={extension.installed}
                     extensionVersion={extension.installed ? extension.version : undefined}
                     extensionSupportsAppIntegration={extension.supportsAppIntegration}
+                    extensionSupportsLogs={extension.supportsLogs}
                     extensionSupportsOverlay={extension.supportsStreamingVideoOverlay}
                     extensionSupportsSidePanel={extension.supportsSidePanel}
                     extensionSupportsOrderableAnkiFields={extension.supportsOrderableAnkiFields}
@@ -133,6 +137,7 @@ export default function SettingsDialog({
                     onOpenChromeExtensionShortcuts={extension.openShortcuts}
                     onSettingsChanged={onSettingsChanged}
                     dictionaryProvider={dictionaryProvider}
+                    logProvider={logProvider}
                     settings={settings}
                     profiles={profilesContext.profiles}
                     activeProfile={profilesContext.activeProfile}

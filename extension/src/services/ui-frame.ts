@@ -5,15 +5,22 @@ import { frameColorScheme, frameColorSchemeClass } from '@project/extension/src/
 
 export const uiFrameForHtml = (html: (lang: string) => Promise<string>) => {
     return new UiFrame(async (frame: HTMLIFrameElement, lang: string) => {
+        const frameDocument = new DOMParser().parseFromString(await html(lang), 'text/html');
+        const logBridge = frameDocument.createElement('script');
+        logBridge.src = browser.runtime.getURL('/page-log-bridge.js');
+        logBridge.setAttribute('data-asbplayer-ui', '');
+        frameDocument.head.prepend(logBridge);
+        const frameHtmlWithLogBridge = '<!DOCTYPE html>' + frameDocument.documentElement.outerHTML;
+
         if (isFirefoxBuild) {
             // Firefox does not allow document.write() into the about:blank iframe.
-            frame.srcdoc = await html(lang);
+            frame.srcdoc = frameHtmlWithLogBridge;
         } else {
             // On Chromium, use document.write() since it allows the loading of extension scripts
             // into the iframe without additional work.
             const doc = frame.contentDocument!;
             doc.open();
-            doc.write(await html(lang));
+            doc.write(frameHtmlWithLogBridge);
             doc.close();
         }
     });

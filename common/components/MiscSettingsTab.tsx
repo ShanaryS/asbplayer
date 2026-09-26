@@ -1,4 +1,5 @@
 import { asbError } from '@project/common/util';
+import type { LogProvider } from '@project/common/util';
 import Button from '@mui/material/Button';
 import FormControl from '@mui/material/FormControl';
 import FormLabel from '@mui/material/FormLabel';
@@ -43,6 +44,7 @@ import { normalizePlaybackRate } from '@project/common/playback/controllers/play
 import { normalizeAutoPauseDurationBounds } from '@project/common/playback/plan/playback-plan';
 import NumericSettingInput from '@project/common/components/NumericSettingInput';
 import KeyboardShortcutLink from '@project/common/components/KeyboardShortcutLink';
+import LogViewerDialog from '@project/common/components/LogViewerDialog';
 
 function regexIsValid(regex: string) {
     try {
@@ -57,6 +59,8 @@ interface Props {
     settings: AsbplayerSettings;
     onSettingChanged: <K extends keyof AsbplayerSettings>(key: K, value: AsbplayerSettings[K]) => Promise<void>;
     onSettingsChanged: (settings: Partial<AsbplayerSettings>) => void;
+    logProvider: LogProvider;
+    supportsLogs: boolean;
     supportedLanguages: string[];
     insideApp?: boolean;
     extensionInstalled?: boolean;
@@ -75,6 +79,8 @@ const MiscSettingTab: React.FC<Props> = ({
     settings,
     onSettingChanged,
     onSettingsChanged,
+    logProvider,
+    supportsLogs,
     supportedLanguages,
     insideApp,
     extensionInstalled,
@@ -164,6 +170,7 @@ const MiscSettingTab: React.FC<Props> = ({
     );
     const validRegex = useMemo(() => regexIsValid(subtitleRegexFilter), [subtitleRegexFilter]);
     const [webSocketConnectionSucceeded, setWebSocketConnectionSucceeded] = useState<boolean>();
+    const [logViewerOpen, setLogViewerOpen] = useState(false);
     const pingWebSocketServer = useCallback(() => {
         const client = new WebSocketClient();
         client
@@ -227,6 +234,11 @@ const MiscSettingTab: React.FC<Props> = ({
                         {t('action.exportSettings')}
                     </Button>
                 </Stack>
+                {supportsLogs && (
+                    <Button fullWidth variant="contained" color="primary" onClick={() => setLogViewerOpen(true)}>
+                        {t('settings.logs')}
+                    </Button>
+                )}
                 <SettingsSection>{t('settings.ui')}</SettingsSection>
                 <FormControl>
                     <FormLabel>{t('settings.theme')}</FormLabel>
@@ -1063,6 +1075,13 @@ const MiscSettingTab: React.FC<Props> = ({
                 multiple
                 hidden
             />
+            {supportsLogs && (
+                <LogViewerDialog
+                    open={logViewerOpen}
+                    onClose={() => setLogViewerOpen(false)}
+                    logProvider={logProvider}
+                />
+            )}
         </>
     );
 };

@@ -252,10 +252,19 @@ export class PageDelegate {
 }
 
 export function injectPageScript(pageScript: string) {
+    const parent = document.head || document.documentElement;
+    const bridge = document.createElement('script');
+    bridge.async = false;
+    bridge.src = browser.runtime.getURL('page-log-bridge.js' as PublicPath);
+    bridge.onload = () => bridge.remove();
+    bridge.onerror = () => bridge.remove();
+
     const script = document.createElement('script');
+    script.async = false;
     script.src = browser.runtime.getURL(pageScript as PublicPath);
     script.onload = () => script.remove();
-    (document.head || document.documentElement).appendChild(script);
+    script.onerror = () => script.remove();
+    parent.append(bridge, script);
     return script;
 }
 

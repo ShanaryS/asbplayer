@@ -225,7 +225,30 @@ describe('humanReadableTime', () => {
     });
 
     it('formats localized dates with hour, minute, and second fields', () => {
-        expect(localizedDate(Date.UTC(2026, 0, 1, 13, 2, 3), 'en-US', 'UTC')).toBe('01:02:03 PM');
+        expect(localizedDate(Date.UTC(2026, 0, 1, 13, 2, 3), { locales: 'en-US', timeZone: 'UTC' })).toBe(
+            '01:02:03 PM'
+        );
+    });
+
+    it('formats localized dates with milliseconds when requested', () => {
+        expect(
+            localizedDate(Date.UTC(2026, 0, 1, 13, 2, 3, 123), {
+                locales: 'en-US',
+                timeZone: 'UTC',
+                includeMilliseconds: true,
+            })
+        ).toBe('01:02:03.123 PM');
+    });
+
+    it('formats localized dates in 24-hour time when requested', () => {
+        expect(
+            localizedDate(Date.UTC(2026, 0, 1, 13, 2, 3, 123), {
+                locales: 'en-US',
+                timeZone: 'UTC',
+                hour12: false,
+                includeMilliseconds: true,
+            })
+        ).toBe('13:02:03.123');
     });
 
     it('formats 0 milliseconds', () => {
@@ -895,7 +918,7 @@ describe('ensureStoragePersisted', () => {
 
         await expect(ensureStoragePersisted()).resolves.toBe(false);
         expect(warn).toHaveBeenCalledWith(
-            '[asbplayer][storage]',
+            expect.stringContaining('[asbplayer][storage]'),
             'Storage could not be persisted, data may be cleared by the browser'
         );
     });

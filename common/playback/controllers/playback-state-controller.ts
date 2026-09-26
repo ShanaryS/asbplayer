@@ -1,5 +1,5 @@
 import type { IndexedSubtitleModel, PlaybackState } from '@project/common';
-import { arrayEquals } from '@project/common/util';
+import { arrayEquals, asbTrace } from '@project/common/util';
 
 export interface PlaybackStateNotificationOptions {
     readonly force: boolean;
@@ -56,6 +56,7 @@ export default class PlaybackStateController<T extends IndexedSubtitleModel> {
         this.lastNotifiedState = undefined;
         this.pendingForce = false;
         this.pendingReconcile = undefined;
+        asbTrace('playback/state', 'Bound playback state controller', { bindGeneration: this.bindGeneration });
     }
 
     lock(): PlaybackStateLock {

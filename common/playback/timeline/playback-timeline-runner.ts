@@ -1,4 +1,5 @@
 import type { IndexedSubtitleModel } from '@project/common';
+import { asbTrace } from '@project/common/util';
 import type PlaybackTimeline from '@project/common/playback/timeline/playback-timeline';
 import type { PlaybackTimelineEvent, PlaybackTimelineState } from '@project/common/playback/timeline/playback-timeline';
 import PlaybackTimelineCursor from '@project/common/playback/timeline/playback-timeline-cursor';
@@ -32,22 +33,37 @@ export default class PlaybackTimelineRunner<T extends IndexedSubtitleModel> {
         this.timeline = timeline;
         this.cursor = new PlaybackTimelineCursor(timeline, timestampMs);
         this.callbacks = callbacks;
+        asbTrace('playback/timeline', 'Created playback timeline runner', {
+            blockCount: timeline.blocks.length,
+            timestampMs,
+        });
     }
 
     replaceTimeline(timeline: PlaybackTimeline<T>, timestampMs: number): void {
+        asbTrace('playback/timeline', 'Replaced playback timeline', {
+            blockCount: timeline.blocks.length,
+            timestampMs,
+        });
         this.timeline = timeline;
         this.cursor.replaceTimeline(timeline, timestampMs, { includeAtTimestamp: false });
         this.initialUpdate = true;
     }
 
     reset(timestampMs: number, options: { includeAtTimestamp: boolean }): void {
+        asbTrace('playback/timeline', 'Reset playback timeline cursor', {
+            includeAtTimestamp: options.includeAtTimestamp,
+            timestampMs,
+        });
         this.cursor.reset(timestampMs, options);
         this.initialUpdate = false;
     }
 
     async update(timestampMs: number): Promise<void> {
         const groups = this.cursor.advance(timestampMs);
+        const initialUpdate = this.initialUpdate;
+        let movedBackward = false;
         for (const group of groups) {
+            movedBackward ||= group.direction === 'backward';
             let autoPaused = false;
             let seeked = false;
             for (const event of group.events) {
@@ -69,18 +85,29 @@ export default class PlaybackTimelineRunner<T extends IndexedSubtitleModel> {
                 return;
             }
             if (seeked) {
+                asbTrace('playback/timeline', 'Stopping timeline update after playback seek', {
+                    timestampMs: group.timestampMs,
+                });
                 this.cursor.reset(group.timestampMs, { includeAtTimestamp: false });
                 return;
             }
         }
 
-        const initialUpdate = this.initialUpdate;
         this.initialUpdate = false;
         if (groups.length === 0 && !initialUpdate) return;
         if (groups.length > 0) await this.applyState(timestampMs);
-        if (groups.some((group) => group.direction === 'backward')) return;
+        if (movedBackward) {
+            asbTrace('playback/timeline', 'Skipping forward timeline actions after backward movement', {
+                timestampMs,
+            });
+            return;
+        }
         const { stateChangedTimestampMs } = await this.callbacks.onAfterState(timestampMs);
         if (stateChangedTimestampMs !== undefined) {
+            asbTrace('playback/timeline', 'Timeline state changed playback position', {
+                stateChangedTimestampMs,
+                timestampMs,
+            });
             this.cursor.reset(stateChangedTimestampMs, { includeAtTimestamp: true });
         }
     }

@@ -1,4 +1,5 @@
 import type { VideoData, VideoDataSubtitleTrack, VideoDataSubtitleTrackDef } from '@project/common';
+import { asbTrace } from '@project/common/util';
 import {
     BaseGenericPageDiscovery,
     cuesFromTextTrack,
@@ -43,6 +44,28 @@ import { extractExtension, trackFromDef } from '@project/extension/src/pages/uti
 const maximumTrackedVideos = 20;
 const maximumTrackedTextTracks = 50;
 const cueCaptureIntervalMs = 1_000;
+
+interface SubtitleFetchTrace {
+    requestCount: number;
+    capturedResourceBodyReadCount: number;
+    responseStatusCounts: Record<string, number>;
+    httpFailureCount: number;
+    requestErrorCount: number;
+    limitedResponseCount: number;
+    responseTextCharacters: number;
+}
+
+function newSubtitleFetchTrace(): SubtitleFetchTrace {
+    return {
+        requestCount: 0,
+        capturedResourceBodyReadCount: 0,
+        responseStatusCounts: {},
+        httpFailureCount: 0,
+        requestErrorCount: 0,
+        limitedResponseCount: 0,
+        responseTextCharacters: 0,
+    };
+}
 
 interface AccumulatedCue {
     cue: SerializableCue;
@@ -660,15 +683,32 @@ export class AggressiveGenericPageDiscovery implements VideoDataProvider {
     }
 
     async videoData(video: HTMLVideoElement): Promise<VideoData> {
+        const startedAt = performance.now();
+        const fetchTrace = newSubtitleFetchTrace();
+        const sourceTrackCounts = { base: 0, metadata: 0, segmented: 0, extensionless: 0, direct: 0 };
+        let resourceReadFailureCount = 0;
+        let malformedMetadataCount = 0;
+        let manifestParseFailureCount = 0;
+        let metadataRequestFailureCount = 0;
+        let extensionlessRequestFailureCount = 0;
+        let rejectedPayloadCount = 0;
+        let rejectedStoryboardCount = 0;
+
         await this.settlePending();
         const base = await this.baseDiscovery.videoData(video);
         const page = pageIdentity();
         this.preparePageState(page);
         const candidates: TrackCandidate[] = [];
-        const addTracks = (tracks: readonly VideoDataSubtitleTrack[], score: number) => {
+        const addTracks = (
+            tracks: readonly VideoDataSubtitleTrack[],
+            score: number,
+            source: keyof typeof sourceTrackCounts
+        ) => {
+            sourceTrackCounts[source] += tracks.length;
             for (const track of tracks) candidates.push({ track, score, order: candidates.length });
         };
         for (const track of base.subtitles ?? []) {
+            sourceTrackCounts.base++;
             candidates.push({ track, score: baseTrackScore(track), order: candidates.length });
         }
         const metadataUrls = new Set<string>();
@@ -677,7 +717,7 @@ export class AggressiveGenericPageDiscovery implements VideoDataProvider {
 
         const inlineJson = this.discoveryFromHintedInlineJson(page);
         if (inlineJson !== undefined) {
-            addTracks(inlineJson.tracks, trackCandidateScore.metadataTrack);
+            addTracks(inlineJson.tracks, trackCandidateScore.metadataTrack, 'metadata');
             for (const url of inlineJson.manifestUrls) this.observe(url, page);
             for (const url of inlineJson.metadataUrls) metadataUrls.add(url);
             for (const track of inlineJson.extensionlessTracks) extensionlessTracks.set(track.url, track);
@@ -685,7 +725,7 @@ export class AggressiveGenericPageDiscovery implements VideoDataProvider {
 
         const pageJsonSnapshots = this.parsedJson.filter((snapshot) => snapshot.page === page);
         for (const snapshot of pageJsonSnapshots) {
-            addTracks(snapshot.tracks, trackCandidateScore.metadataTrack);
+            addTracks(snapshot.tracks, trackCandidateScore.metadataTrack, 'metadata');
             for (const url of snapshot.metadataUrls) metadataUrls.add(url);
             for (const track of snapshot.extensionlessTracks) extensionlessTracks.set(track.url, track);
         }
@@ -701,9 +741,10 @@ export class AggressiveGenericPageDiscovery implements VideoDataProvider {
             let text: string | undefined;
             try {
                 if (record.body !== undefined || record.kind !== 'subtitle') {
-                    text = await this.resourceText(record);
+                    text = await this.resourceText(record, fetchTrace);
                 }
             } catch {
+                resourceReadFailureCount++;
                 continue;
             }
             const kind = kindFromResource(record.url, record.contentType, text) ?? record.kind;
@@ -712,37 +753,36 @@ export class AggressiveGenericPageDiscovery implements VideoDataProvider {
                 try {
                     const value = (this.originalJsonParse ?? JSON.parse)(text);
                     const discovery = tracksFromJson(value, record.url, jsonDiscoveryOptions(record.url));
-                    addTracks(discovery.tracks, trackCandidateScore.metadataTrack);
+                    addTracks(discovery.tracks, trackCandidateScore.metadataTrack, 'metadata');
                     for (const url of discovery.manifestUrls) runtimeJsonManifestUrls.add(url);
                     for (const url of discovery.metadataUrls) metadataUrls.add(url);
                     for (const track of discovery.extensionlessTracks) extensionlessTracks.set(track.url, track);
                 } catch {
+                    malformedMetadataCount++;
                     // Ignore malformed JSON metadata.
                 }
             } else if (kind === 'hls' && text !== undefined) {
                 try {
                     processedHlsManifestUrls.add(record.url);
-                    addTracks(
-                        await this.tracksFromHlsManifest(record.url, text, pageRecords),
-                        trackCandidateScore.segmentedTrack
-                    );
+                    const tracks = await this.tracksFromHlsManifest(record.url, text, pageRecords, fetchTrace);
+                    addTracks(tracks, trackCandidateScore.segmentedTrack, 'segmented');
                 } catch {
+                    manifestParseFailureCount++;
                     // A speculative manifest should not prevent other candidates from being tried.
                 }
             } else if (kind === 'dash' && text !== undefined) {
                 try {
-                    addTracks(
-                        subtitleTracksFromMpdManifest(record.url, text, (playlist, language, metadata) => {
-                            for (const segment of playlist.segments ?? []) {
-                                if (typeof segment.resolvedUri === 'string') {
-                                    this.rememberManifestChild(segment.resolvedUri);
-                                }
+                    const tracks = subtitleTracksFromMpdManifest(record.url, text, (playlist, language, metadata) => {
+                        for (const segment of playlist.segments ?? []) {
+                            if (typeof segment.resolvedUri === 'string') {
+                                this.rememberManifestChild(segment.resolvedUri);
                             }
-                            return dashTrack(playlist, language, metadata);
-                        }),
-                        trackCandidateScore.segmentedTrack
-                    );
+                        }
+                        return dashTrack(playlist, language, metadata);
+                    });
+                    addTracks(tracks, trackCandidateScore.segmentedTrack, 'segmented');
                 } catch {
+                    manifestParseFailureCount++;
                     // Ignore malformed or unsupported DASH manifests.
                 }
             } else if (kind === 'subtitle') {
@@ -757,15 +797,16 @@ export class AggressiveGenericPageDiscovery implements VideoDataProvider {
                 const matching = pageRecords.find((record) => record.url === url);
                 const text =
                     matching === undefined
-                        ? await this.fetchText(url, maximumMetadataBodyLength)
-                        : await this.resourceText(matching);
+                        ? await this.fetchText(url, maximumMetadataBodyLength, fetchTrace)
+                        : await this.resourceText(matching, fetchTrace);
                 if (text === undefined) continue;
                 const value = (this.originalJsonParse ?? JSON.parse)(text);
                 if (matching === undefined) this.observe(url, page, 'application/json', text);
                 const discovery = tracksFromJson(value, url, jsonDiscoveryOptions(url));
-                addTracks(discovery.tracks, trackCandidateScore.metadataTrack);
+                addTracks(discovery.tracks, trackCandidateScore.metadataTrack, 'metadata');
                 for (const manifestUrl of discovery.manifestUrls) runtimeJsonManifestUrls.add(manifestUrl);
             } catch {
+                metadataRequestFailureCount++;
                 // Ignore unavailable or malformed speculative subtitle metadata.
             }
         }
@@ -776,15 +817,19 @@ export class AggressiveGenericPageDiscovery implements VideoDataProvider {
                 const matching = pageRecords.find((record) => record.url === url);
                 const resource =
                     matching === undefined
-                        ? await this.fetchTextResource(url)
-                        : { text: await this.resourceText(matching), url: matching.url };
+                        ? await this.fetchTextResource(url, maximumCapturedBodyLength, fetchTrace)
+                        : { text: await this.resourceText(matching, fetchTrace), url: matching.url };
                 if (resource?.text !== undefined) {
-                    addTracks(
-                        await this.tracksFromHlsManifest(resource.url, resource.text, pageRecords),
-                        trackCandidateScore.segmentedTrack
+                    const tracks = await this.tracksFromHlsManifest(
+                        resource.url,
+                        resource.text,
+                        pageRecords,
+                        fetchTrace
                     );
+                    addTracks(tracks, trackCandidateScore.segmentedTrack, 'segmented');
                 }
             } catch {
+                manifestParseFailureCount++;
                 // Ignore unavailable speculative manifests.
             }
         }
@@ -797,10 +842,13 @@ export class AggressiveGenericPageDiscovery implements VideoDataProvider {
                 const matching = pageRecords.find((record) => record.url === candidate.url);
                 const text =
                     matching === undefined
-                        ? await this.fetchText(candidate.url, maximumMetadataBodyLength)
-                        : await this.resourceText(matching);
+                        ? await this.fetchText(candidate.url, maximumMetadataBodyLength, fetchTrace)
+                        : await this.resourceText(matching, fetchTrace);
                 if (text === undefined) continue;
-                if (!text.trim() || looksLikeHtml(text) || looksLikeEncodedPayload(text)) continue;
+                if (!text.trim() || looksLikeHtml(text) || looksLikeEncodedPayload(text)) {
+                    rejectedPayloadCount++;
+                    continue;
+                }
                 const extension =
                     subtitleExtensionFromText(text) ??
                     subtitleExtensionsByContentType[normalizedContentType(matching?.contentType) ?? ''];
@@ -809,12 +857,15 @@ export class AggressiveGenericPageDiscovery implements VideoDataProvider {
                     if (matching === undefined) this.observe(candidate.url, page, undefined, text);
                     addTracks(
                         [trackFromDef({ ...candidate, extension })],
-                        trackCandidateScore.verifiedExtensionlessTrack
+                        trackCandidateScore.verifiedExtensionlessTrack,
+                        'extensionless'
                     );
                 } else if (extension === 'vtt') {
+                    rejectedStoryboardCount++;
                     this.rememberRejectedResource(candidate.url);
                 }
             } catch {
+                extensionlessRequestFailureCount++;
                 // Ignore unavailable or unsupported speculative subtitle resources.
             }
         }
@@ -823,12 +874,14 @@ export class AggressiveGenericPageDiscovery implements VideoDataProvider {
             if (this.manifestChildUrls.has(record.url)) continue;
             if (text !== undefined) {
                 if (!text.trim() || looksLikeHtml(text) || looksLikeEncodedPayload(text)) {
+                    rejectedPayloadCount++;
                     this.rememberRejectedResource(record.url);
                     continue;
                 }
             }
             const detectedExtension = text === undefined ? undefined : subtitleExtensionFromText(text);
             if (detectedExtension === 'vtt' && text !== undefined && isStoryboardVtt(text)) {
+                rejectedStoryboardCount++;
                 this.rememberRejectedResource(record.url);
                 continue;
             }
@@ -841,29 +894,73 @@ export class AggressiveGenericPageDiscovery implements VideoDataProvider {
                 this.rejectedResourceUrls.delete(record.url);
                 addTracks(
                     [trackFromDef({ label: detectedSubtitleLabel, url: record.url, extension })],
-                    directResourceTrackScore(detectedExtension, text)
+                    directResourceTrackScore(detectedExtension, text),
+                    'direct'
                 );
             }
         }
 
+        let rejectedMissingSourceCount = 0;
+        let rejectedKnownBadSourceCount = 0;
+        let rejectedManifestChildCount = 0;
         const rankedTracks = candidates
             .filter(({ track }) => {
                 if (Array.isArray(track.url)) return true;
-                return (
-                    track.url !== undefined &&
-                    !this.rejectedResourceUrls.has(track.url) &&
-                    !this.manifestChildUrls.has(track.url)
-                );
+                if (track.url === undefined) {
+                    rejectedMissingSourceCount++;
+                    return false;
+                }
+                if (this.rejectedResourceUrls.has(track.url)) {
+                    rejectedKnownBadSourceCount++;
+                    return false;
+                }
+                if (this.manifestChildUrls.has(track.url)) {
+                    rejectedManifestChildCount++;
+                    return false;
+                }
+                return true;
             })
             .sort((left, right) => right.score - left.score || left.order - right.order)
             .map(({ track }) => track);
-        return { error: '', basename: base.basename, subtitles: deduplicateTracks(rankedTracks) };
+        const subtitles = deduplicateTracks(rankedTracks);
+        asbTrace('subtitle/discovery', 'Completed aggressive subtitle track discovery', {
+            pageHost: window.location.host,
+            sourceTrackCounts,
+            candidateTrackCount: candidates.length,
+            outputTrackCount: subtitles.length,
+            durationMs: performance.now() - startedAt,
+            ...(subtitles.length === 0
+                ? {
+                      videoReadyState: video.readyState,
+                      capturedJsonSnapshotCount: pageJsonSnapshots.length,
+                      recentResourceCount: pageRecords.length,
+                      metadataReferenceCount: metadataUrls.size,
+                      runtimeManifestReferenceCount: runtimeJsonManifestUrls.size,
+                      extensionlessCandidateCount: extensionlessTracks.size,
+                      speculativeRequestCount: speculativeRequests,
+                      fetchTrace,
+                      resourceReadFailureCount,
+                      malformedMetadataCount,
+                      manifestParseFailureCount,
+                      metadataRequestFailureCount,
+                      extensionlessRequestFailureCount,
+                      rejectedPayloadCount,
+                      rejectedStoryboardCount,
+                      rejectedMissingSourceCount,
+                      rejectedKnownBadSourceCount,
+                      rejectedManifestChildCount,
+                      rankedTrackCount: rankedTracks.length,
+                  }
+                : {}),
+        });
+        return { error: '', basename: base.basename, subtitles };
     }
 
     private async tracksFromHlsManifest(
         manifestUrl: string,
         text: string,
-        pageRecords: readonly ResourceRecord[]
+        pageRecords: readonly ResourceRecord[],
+        fetchTrace: SubtitleFetchTrace
     ): Promise<VideoDataSubtitleTrack[]> {
         const manifest = limitM3U8SubtitleRenditions(parseM3U8(text), maximumManifestSubtitleRenditions);
         const tracks = await subtitleTrackSegmentsFromM3U8Manifest(
@@ -873,8 +970,8 @@ export class AggressiveGenericPageDiscovery implements VideoDataProvider {
                 const matching = pageRecords.find((candidate) => candidate.url === subtitleManifestUrl);
                 const resource =
                     matching === undefined
-                        ? await this.fetchTextResource(subtitleManifestUrl)
-                        : { text: await this.resourceText(matching), url: matching.url };
+                        ? await this.fetchTextResource(subtitleManifestUrl, maximumCapturedBodyLength, fetchTrace)
+                        : { text: await this.resourceText(matching, fetchTrace), url: matching.url };
                 if (resource?.text === undefined) throw new Error('Unable to load HLS subtitle manifest');
                 const subtitleManifest = parseM3U8(resource.text);
                 for (const segment of subtitleManifest.segments ?? []) {
@@ -1029,25 +1126,49 @@ export class AggressiveGenericPageDiscovery implements VideoDataProvider {
         await Promise.allSettled(Array.from(this.pending));
     }
 
-    private async resourceText(record: ResourceRecord) {
-        return record.body === undefined ? this.fetchText(record.url) : record.body;
+    private async resourceText(record: ResourceRecord, fetchTrace: SubtitleFetchTrace) {
+        if (record.body !== undefined) {
+            fetchTrace.capturedResourceBodyReadCount++;
+            return record.body;
+        }
+        return this.fetchText(record.url, maximumCapturedBodyLength, fetchTrace);
     }
 
-    private async fetchText(url: string, maximumLength = maximumCapturedBodyLength) {
-        return (await this.fetchTextResource(url, maximumLength))?.text;
+    private async fetchText(url: string, maximumLength = maximumCapturedBodyLength, fetchTrace?: SubtitleFetchTrace) {
+        return (await this.fetchTextResource(url, maximumLength, fetchTrace))?.text;
     }
 
-    private async fetchTextResource(url: string, maximumLength = maximumCapturedBodyLength) {
+    private async fetchTextResource(
+        url: string,
+        maximumLength = maximumCapturedBodyLength,
+        fetchTrace?: SubtitleFetchTrace
+    ) {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), resourceFetchTimeoutMs);
+        if (fetchTrace) fetchTrace.requestCount++;
         try {
             const response = await (this.originalFetch ?? window.fetch)(url, {
                 cache: 'no-store',
                 signal: controller.signal,
             });
-            if (!response.ok && response.status !== 304) return;
+            if (fetchTrace) {
+                fetchTrace.responseStatusCounts[response.status] =
+                    (fetchTrace.responseStatusCounts[response.status] ?? 0) + 1;
+            }
+            if (!response.ok && response.status !== 304) {
+                if (fetchTrace) fetchTrace.httpFailureCount++;
+                return;
+            }
             const text = await responseTextWithinLimit(response, maximumLength);
-            return text === undefined ? undefined : { text, url: response.url || url };
+            if (text === undefined) {
+                if (fetchTrace) fetchTrace.limitedResponseCount++;
+                return;
+            }
+            if (fetchTrace) fetchTrace.responseTextCharacters += text.length;
+            return { text, url: response.url || url };
+        } catch (error) {
+            if (fetchTrace) fetchTrace.requestErrorCount++;
+            throw error;
         } finally {
             clearTimeout(timeout);
         }

@@ -1,4 +1,5 @@
 import type { VideoData, VideoDataSubtitleTrack } from '@project/common';
+import { asbTrace } from '@project/common/util';
 import { subtitlesToSrt } from '@project/common/subtitle-reader/subtitles-to-srt';
 import {
     limitM3U8SubtitleRenditions,
@@ -130,20 +131,47 @@ function boundedM3U8Manifest(manifest: any) {
     return manifest;
 }
 
-async function fetchBoundedM3U8(url: string): Promise<LoadedM3U8Manifest> {
+interface ManifestFetchSummary {
+    requestCount: number;
+    failureCount: number;
+    httpFailureCount: number;
+    limitedResponseCount: number;
+    responseStatusCounts: Record<string, number>;
+}
+
+function newManifestFetchSummary(): ManifestFetchSummary {
+    return {
+        requestCount: 0,
+        failureCount: 0,
+        httpFailureCount: 0,
+        limitedResponseCount: 0,
+        responseStatusCounts: {},
+    };
+}
+
+async function fetchBoundedM3U8(url: string, summary: ManifestFetchSummary): Promise<LoadedM3U8Manifest> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), manifestFetchTimeoutMs);
+    summary.requestCount++;
     try {
         const response = await fetch(url, { cache: 'no-store', signal: controller.signal });
-        if (!response.ok) throw new Error(`HLS manifest request failed with status ${response.status}`);
+        summary.responseStatusCounts[response.status] = (summary.responseStatusCounts[response.status] ?? 0) + 1;
+        if (!response.ok) {
+            summary.httpFailureCount++;
+            throw new Error(`HLS manifest request failed with status ${response.status}`);
+        }
 
         const contentLength = Number(response.headers.get('Content-Length'));
         if (Number.isFinite(contentLength) && contentLength > maximumManifestLength) {
+            summary.limitedResponseCount++;
             throw new Error('HLS manifest exceeds the capture limit');
         }
 
         const text = await responseTextWithinLimit(response, maximumManifestLength);
-        if (text === undefined) throw new Error('HLS manifest exceeds the capture limit');
+        if (text === undefined) {
+            summary.limitedResponseCount++;
+            throw new Error('HLS manifest exceeds the capture limit');
+        }
         if (!text.trimStart().startsWith('#EXTM3U')) {
             throw new Error('Invalid HLS manifest');
         }
@@ -152,6 +180,9 @@ async function fetchBoundedM3U8(url: string): Promise<LoadedM3U8Manifest> {
             manifest: boundedM3U8Manifest(parseM3U8(text)),
             url: response.url || url,
         };
+    } catch (error) {
+        summary.failureCount++;
+        throw error;
     } finally {
         clearTimeout(timeout);
     }
@@ -160,18 +191,36 @@ async function fetchBoundedM3U8(url: string): Promise<LoadedM3U8Manifest> {
 async function tracksFromInlineManifests(manifestUrls: ReadonlySet<string>) {
     const tracks: VideoDataSubtitleTrack[] = [];
     const urls = Array.from(manifestUrls).slice(0, maximumInlineManifestUrls);
+    if (urls.length === 0) return tracks;
+
+    const startedAt = performance.now();
+    const fetchSummary = newManifestFetchSummary();
     const results = await Promise.allSettled(
         urls.map(async (url) => {
-            const loadedManifest = await fetchBoundedM3U8(url);
+            const loadedManifest = await fetchBoundedM3U8(url, fetchSummary);
             return subtitleTrackSegmentsFromM3U8Manifest(
                 loadedManifest.url,
                 limitM3U8SubtitleRenditions(loadedManifest.manifest, maximumManifestSubtitleRenditions),
-                async (subtitleManifestUrl) => fetchBoundedM3U8(subtitleManifestUrl)
+                async (subtitleManifestUrl) => fetchBoundedM3U8(subtitleManifestUrl, fetchSummary)
             );
         })
     );
+    let failedManifestCount = 0;
     for (const result of results) {
         if (result.status === 'fulfilled') tracks.push(...result.value);
+        else failedManifestCount++;
+    }
+    if (failedManifestCount > 0 || tracks.length === 0) {
+        asbTrace('subtitle/extract', 'Inline HLS subtitle manifests produced no tracks or failed', {
+            manifestCount: urls.length,
+            requestCount: fetchSummary.requestCount,
+            failureCount: fetchSummary.failureCount,
+            httpFailureCount: fetchSummary.httpFailureCount,
+            limitedResponseCount: fetchSummary.limitedResponseCount,
+            responseStatusCounts: fetchSummary.responseStatusCounts,
+            failedManifestCount,
+            durationMs: performance.now() - startedAt,
+        });
     }
     return tracks;
 }
@@ -306,15 +355,30 @@ export class BaseGenericPageDiscovery implements VideoDataProvider {
     constructor(private readonly cueProvider?: TextTrackCueProvider) {}
 
     async videoData(video: HTMLVideoElement): Promise<VideoData> {
-        const tracks = nativeSubtitleTracks(video, this.cueProvider);
-        tracks.push(...directSubtitleTracksFromPerformance());
+        const startedAt = performance.now();
+        const nativeTracks = nativeSubtitleTracks(video, this.cueProvider);
+        const performanceTracks = directSubtitleTracksFromPerformance();
         const inlineJson = tracksFromInlineJson();
-        tracks.push(...inlineJson.tracks, ...(await tracksFromInlineManifests(inlineJson.manifestUrls)));
+        const manifestTracks = await tracksFromInlineManifests(inlineJson.manifestUrls);
+        const tracks = [...nativeTracks, ...performanceTracks, ...inlineJson.tracks, ...manifestTracks];
+        const subtitles = deduplicateTracks(tracks);
+        if (subtitles.length === 0) {
+            asbTrace('subtitle/discovery', 'Generic subtitle discovery found no tracks', {
+                pageHost: window.location.host,
+                nativeTrackCount: nativeTracks.length,
+                performanceResourceTrackCount: performanceTracks.length,
+                inlineMetadataTrackCount: inlineJson.tracks.length,
+                inlineManifestUrlCount: inlineJson.manifestUrls.size,
+                inlineManifestTrackCount: manifestTracks.length,
+                candidateTrackCount: tracks.length,
+                durationMs: performance.now() - startedAt,
+            });
+        }
 
         return {
             error: '',
             basename: basenameForVideo(video),
-            subtitles: deduplicateTracks(tracks),
+            subtitles,
         };
     }
 }

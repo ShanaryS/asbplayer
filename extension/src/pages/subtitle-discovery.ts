@@ -1,4 +1,5 @@
 import type { VideoData, VideoDataSubtitleTrack, VideoDataSubtitleTrackDef } from '@project/common';
+import { asbTrace } from '@project/common/util';
 import {
     canonicalLanguageTag,
     extractExtension,
@@ -527,20 +528,66 @@ export function basenameForVideo(video: HTMLVideoElement) {
     return openGraphTitle || document.title;
 }
 
+export function subtitleTrackTraceSummary(tracks: readonly VideoDataSubtitleTrack[]) {
+    const formats: Record<string, number> = {};
+    let tracksWithLanguage = 0;
+    let tracksCapturedDuringPlayback = 0;
+
+    for (const track of tracks) {
+        formats[track.extension] = (formats[track.extension] ?? 0) + 1;
+        if (track.language !== undefined) tracksWithLanguage++;
+        if (track.capturedDuringPlayback) tracksCapturedDuringPlayback++;
+    }
+
+    return {
+        trackCount: tracks.length,
+        formats,
+        tracksWithLanguage,
+        tracksCapturedDuringPlayback,
+    };
+}
+
 export function bindVideoDataDiscovery(discovery: VideoDataProvider, eventTarget: Document = document): () => void {
     const requestGenerations = new WeakMap<HTMLVideoElement, number>();
+    let nextRequestId = 0;
     const listener = (event: Event) => {
+        const requestId = ++nextRequestId;
         const video = event.composedPath().find((target) => target instanceof HTMLVideoElement);
         if (video === undefined) return;
 
+        const startedAt = performance.now();
         const requestPage = window.location.href;
         const generation = (requestGenerations.get(video) ?? 0) + 1;
         requestGenerations.set(video, generation);
         void discovery
             .videoData(video)
-            .catch(() => ({ error: '', basename: document.title, subtitles: [] }))
+            .catch((error) => {
+                asbTrace('subtitle/error', 'Site subtitle discovery failed', {
+                    requestId,
+                    generation,
+                    errorName: error instanceof Error ? error.name : typeof error,
+                });
+                return { error: '', basename: document.title, subtitles: [] };
+            })
             .then((data) => {
-                if (requestGenerations.get(video) !== generation || window.location.href !== requestPage) return;
+                if (requestGenerations.get(video) !== generation || window.location.href !== requestPage) {
+                    asbTrace('subtitle/discovery', 'Discarded stale site subtitle discovery result', {
+                        requestId,
+                        generation,
+                        superseded: requestGenerations.get(video) !== generation,
+                        pageChanged: window.location.href !== requestPage,
+                    });
+                    return;
+                }
+
+                asbTrace('subtitle/discovery', 'Completed site subtitle discovery', {
+                    requestId,
+                    generation,
+                    pageHost: window.location.host,
+                    ...subtitleTrackTraceSummary(data.subtitles ?? []),
+                    hasReportedError: Boolean(data.error),
+                    durationMs: performance.now() - startedAt,
+                });
                 video.dispatchEvent(new CustomEvent('asbplayer-synced-data', { detail: data }));
             });
     };

@@ -13,6 +13,7 @@ import type { PlaybackTimelineSubtitles } from '@project/common/playback/timelin
 import {
     areSubtitleModelsEqual,
     arrayEquals,
+    asbTrace,
     normalizeFinite,
     normalizeNonNegative,
     normalizeNonPositive,
@@ -172,7 +173,7 @@ export const buildPlaybackPlan = <T extends IndexedSubtitleModel>({
             : {}),
     }));
 
-    return {
+    const plan: PlaybackPlan<T> = {
         timelineSubtitles: {
             ...timeline,
             blocks,
@@ -228,6 +229,17 @@ export const buildPlaybackPlan = <T extends IndexedSubtitleModel>({
               }
             : {}),
     };
+    asbTrace('playback/plan', 'Built playback plan', {
+        autoPause: plan.autoPause?.resume.mode,
+        condensed: plan.condensed !== undefined,
+        displaySubtitleCount: timeline.displaySubtitles.length,
+        durationMs: timeline.durationMs,
+        fastForward: plan.fastForward?.playbackRate,
+        modes: [...playModes],
+        playbackRate,
+        timelineBlockCount: plan.timelineSubtitles.blocks.length,
+    });
+    return plan;
 };
 
 export const fastForwardingForPlanState = <T extends IndexedSubtitleModel>(

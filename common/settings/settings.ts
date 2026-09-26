@@ -597,6 +597,8 @@ export interface PageSettings {
     urplay: Page;
     archive: Page;
     crunchyroll: Page;
+    okru: Page;
+    vkvideo: Page;
 }
 
 export interface StreamingVideoSettings {

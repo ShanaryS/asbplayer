@@ -21,7 +21,13 @@ export const sanitizeSubtitleHtml = (html: string) =>
         ALLOW_ARIA_ATTR: false,
     });
 
+const vttTimestampValue = String.raw`(?:\d{2,}:)?\d{2}:\d{2}\.\d{3}`;
+const vttTimestampTagRegex = new RegExp(
+    `(?:<|&lt;|&#0*60;|&#x0*3c;)${vttTimestampValue}(?:>|&gt;|&#0*62;|&#x0*3e;)`,
+    'gi'
+);
 const vttClassRegex = /<(\/)?c(\.[^>]*)?>/g;
+
 const assNewLineRegex = RegExp(/\\[nN]/, 'ig');
 // Character classes shared by the Netflix ruby regexes below so they cannot drift apart.
 const netflixRubyKanaClass = '\\p{sc=Hira}\\p{sc=Kana}';
@@ -186,7 +192,8 @@ export default class SubtitleReader {
                 let buffer: VTTCue[] = [];
 
                 parser.oncue = (c: VTTCue) => {
-                    c.text = this._filterText(c.text.replaceAll(vttClassRegex, ''));
+                    const cueText = c.text.replaceAll(vttClassRegex, '').replaceAll(vttTimestampTagRegex, '');
+                    c.text = this._filterText(cueText);
 
                     if (isFromNetflix) {
                         const lines = c.text.split('\n');

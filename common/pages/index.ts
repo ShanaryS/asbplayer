@@ -32,4 +32,6 @@ export const pageMetadata: { [K in keyof PageSettings]: PageMetadata } = {
     archive: { title: 'Internet Archive', disableCspRuleId: 24 },
     huluJp: { title: 'Hulu Japan', disableCspRuleId: 25 },
     crunchyroll: { title: 'Crunchyroll', disableCspRuleId: 26 },
+    okru: { title: 'OK.ru', disableCspRuleId: 27 },
+    vkvideo: { title: 'VK Video', disableCspRuleId: 28 },
 };

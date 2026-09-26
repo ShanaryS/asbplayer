@@ -31,6 +31,10 @@ export interface PageConfig {
     // Whether this is the generic fallback used for otherwise unsupported pages
     generic?: boolean;
 
+    // Where subtitle discovery requests should originate. Generic discovery uses
+    // the active video element so its event path identifies the video to inspect.
+    subtitleDiscoveryRequestTarget?: 'document' | 'video';
+
     // Whether to refresh available subtitle tracks when the subtitle picker opens
     refreshSubtitleDataOnPickerOpen?: boolean;
 

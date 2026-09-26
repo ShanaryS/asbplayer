@@ -204,7 +204,9 @@ export default class VideoDataSyncController {
             this._refreshingOpenPicker = false;
         }
 
-        const eventTarget = pageDelegate.config.generic ? this._context.video : document;
+        const eventTargetIsVideo =
+            pageDelegate.config.subtitleDiscoveryRequestTarget === 'video' || pageDelegate.config.generic === true;
+        const eventTarget = eventTargetIsVideo ? this._context.video : document;
         if (!this._dataReceivedListener || this._dataReceivedEventTarget !== eventTarget) {
             if (this._dataReceivedListener) {
                 this._dataReceivedEventTarget?.removeEventListener(
@@ -231,7 +233,7 @@ export default class VideoDataSyncController {
         asbTrace('subtitle/request', 'Dispatching site subtitle data request', {
             page: pageDelegate.config.key ?? (pageDelegate.config.generic ? 'generic' : 'unmatched'),
             genericPage: pageDelegate.config.generic === true,
-            eventTarget: pageDelegate.config.generic ? 'video-element' : 'document',
+            eventTarget: eventTargetIsVideo ? 'video-element' : 'document',
         });
         if (pageDelegate.config.key === 'youtube') {
             const targetTranslationLanguageCodes =
@@ -244,8 +246,8 @@ export default class VideoDataSyncController {
         } else {
             eventTarget.dispatchEvent(
                 new CustomEvent('asbplayer-get-synced-data', {
-                    bubbles: pageDelegate.config.generic,
-                    composed: pageDelegate.config.generic,
+                    bubbles: eventTargetIsVideo,
+                    composed: eventTargetIsVideo,
                 })
             );
         }

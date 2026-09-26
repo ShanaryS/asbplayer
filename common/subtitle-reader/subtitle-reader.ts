@@ -94,6 +94,94 @@ const sortVttCues = (list: VTTCue[]) => {
     return list.sort(sortVttCue);
 };
 
+const subtitleCueContinuityToleranceMs = 100;
+const rollingCueOverlapRatio = 0.8;
+
+function subtitleCueWords(text: string) {
+    return text.trim().split(/\s+/u).filter(Boolean);
+}
+
+function subtitleCueOverlapLength(previous: readonly string[], current: readonly string[]) {
+    const maxOverlap = Math.min(previous.length, current.length);
+
+    for (let overlap = maxOverlap; overlap > 0; overlap--) {
+        let matches = true;
+
+        for (let index = 0; index < overlap; index++) {
+            if (previous[previous.length - overlap + index] !== current[index]) {
+                matches = false;
+                break;
+            }
+        }
+
+        if (matches) return overlap;
+    }
+
+    return 0;
+}
+
+/** Detect VTT tracks that repeatedly send a rolling text window instead of independent captions. */
+function isRollingSubtitleCueStream(cues: readonly SubtitleNode[]) {
+    if (cues.length < 8) return false;
+
+    let continuousPairs = 0;
+    let overlappingPairs = 0;
+
+    for (let index = 1; index < cues.length; index++) {
+        const previous = cues[index - 1];
+        const current = cues[index];
+        if (current.start > previous.end + subtitleCueContinuityToleranceMs) continue;
+
+        continuousPairs++;
+        const previousWords = subtitleCueWords(previous.text);
+        const currentWords = subtitleCueWords(current.text);
+        const overlap = subtitleCueOverlapLength(previousWords, currentWords);
+        const smallerCueWordCount = Math.min(previousWords.length, currentWords.length);
+        if (smallerCueWordCount > 0 && overlap / smallerCueWordCount >= 0.5) overlappingPairs++;
+    }
+
+    const minimumContinuousPairs = Math.ceil((cues.length - 1) * 0.7);
+    return continuousPairs >= minimumContinuousPairs && overlappingPairs / continuousPairs >= rollingCueOverlapRatio;
+}
+
+/** Keep only newly added words from rolling caption snapshots and extend each text fragment to its next update. */
+function normalizeRollingSubtitleCues(cues: SubtitleNode[]) {
+    const trimmedCues = cues.map((cue) => ({ ...cue, text: cue.text.trimEnd() })).filter((cue) => cue.text !== '');
+    if (!isRollingSubtitleCueStream(trimmedCues)) return trimmedCues;
+
+    const normalized: SubtitleNode[] = [];
+    let previousWords: string[] = [];
+    let previousCue: SubtitleNode | undefined;
+
+    for (const cue of trimmedCues) {
+        const currentWords = subtitleCueWords(cue.text);
+        const isContinuous =
+            previousCue !== undefined && cue.start <= previousCue.end + subtitleCueContinuityToleranceMs;
+        const overlapCandidate = isContinuous ? subtitleCueOverlapLength(previousWords, currentWords) : 0;
+        const smallerCueWordCount = Math.min(previousWords.length, currentWords.length);
+        const overlap = smallerCueWordCount > 0 && overlapCandidate / smallerCueWordCount >= 0.5 ? overlapCandidate : 0;
+        const newWords = currentWords.slice(overlap);
+        const previousOutput = normalized[normalized.length - 1];
+
+        if (newWords.length === 0) {
+            if (previousOutput !== undefined && isContinuous) {
+                previousOutput.end = Math.max(previousOutput.end, cue.end);
+            }
+        } else {
+            if (previousOutput !== undefined && isContinuous) {
+                previousOutput.end = Math.max(previousOutput.start, Math.min(previousOutput.end, cue.start));
+            }
+
+            normalized.push({ ...cue, text: newWords.join(' ') });
+        }
+
+        previousWords = currentWords;
+        previousCue = cue;
+    }
+
+    return normalized;
+}
+
 export default class SubtitleReader {
     private readonly _textFilter?: TextFilter;
     private readonly _removeXml: boolean;
@@ -135,21 +223,50 @@ export default class SubtitleReader {
     }
 
     async subtitles(files: File[], flatten?: boolean) {
-        const allNodes = (await Promise.all(files.map((f, i) => this._subtitles(f, flatten === true ? 0 : i))))
-            .flatMap((nodes) => nodes)
-            .filter((node) => node.textImage !== undefined || node.text !== '')
-            .sort((n1, n2) => n1.start - n2.start);
+        const parsedTracks = await Promise.all(
+            files.map(async (file, index) => {
+                const nodes = await this._subtitles(file, flatten === true ? 0 : index);
+                return /\.(?:srt|subrip|vtt|nfvtt)$/i.test(file.name) ? normalizeRollingSubtitleCues(nodes) : nodes;
+            })
+        );
+        const allNodes = this._deduplicateTracks(parsedTracks, flatten === true).sort((n1, n2) => n1.start - n2.start);
 
         // Sanitize after all parser, filter, decoding, and flattening transformations.
         // Ruby tokenization runs afterwards because it relies on positions in this
         // sanitized text and does not introduce any new markup.
-        for (const node of allNodes) node.text = sanitizeSubtitleHtml(node.text);
+        for (const node of allNodes) node.text = sanitizeSubtitleHtml(node.text).trimEnd();
 
         if (this._convertNetflixRuby) {
             for (const node of allNodes) this._convertNetflixRubyToHtml(node);
         }
 
-        return this._deduplicate(allNodes);
+        return this._deduplicate(allNodes.filter((node) => node.textImage !== undefined || node.text !== ''));
+    }
+
+    // API-specific and generic discovery can return the same subtitle resource as separate files.
+    private _deduplicateTracks(tracks: SubtitleNode[][], flatten: boolean) {
+        const uniqueTracks: SubtitleNode[][] = [];
+        const signatures = new Set<string>();
+
+        for (const nodes of tracks) {
+            if (nodes.length === 0) continue;
+
+            const signature = nodes.some((node) => node.textImage !== undefined)
+                ? undefined
+                : JSON.stringify(
+                      nodes
+                          .map(({ start, end, text }) => ({ start, end, text }))
+                          .sort((a, b) => a.start - b.start || a.end - b.end || a.text.localeCompare(b.text))
+                  );
+
+            if (signature !== undefined && signatures.has(signature)) continue;
+            if (signature !== undefined) signatures.add(signature);
+
+            const track = flatten ? 0 : uniqueTracks.length;
+            uniqueTracks.push(nodes.map((node) => ({ ...node, track })));
+        }
+
+        return uniqueTracks.flat();
     }
 
     private _deduplicate(nodes: SubtitleNode[]) {

@@ -60,6 +60,7 @@ import type {
     AckTabsMessage,
     BrowserFeatures,
 } from '@project/common';
+import { asbError } from '@project/common/util/log';
 import { buildSubtitleTracks } from '@project/common/util';
 import type { DictionaryStatisticsSnapshot } from '@project/common/dictionary-statistics';
 import type {
@@ -90,7 +91,7 @@ import type {
 import { isSaveOnlySettings } from '@project/common/settings';
 import type { GlobalState } from '@project/common/global-state';
 import { v4 as uuidv4 } from 'uuid';
-import type { LogLine, LogSnapshot } from '@project/common/util/log';
+import type { LogLine, LogSnapshot } from '@project/common/util/log-utils';
 import gte from 'semver/functions/gte';
 import gt from 'semver/functions/gt';
 import { isFirefox } from '@project/common/browser-detection';
@@ -430,7 +431,9 @@ export default class ChromeExtension {
                 src: src,
             };
             window.postMessage(command);
-            void this._createResponsePromise(messageId).then(callback);
+            void this._createResponsePromise(messageId)
+                .then(callback)
+                .catch((error) => asbError('app/extension', 'Failed to receive a video response:', error));
         }
     }
 

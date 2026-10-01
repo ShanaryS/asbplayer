@@ -5,10 +5,10 @@ import SubtitleVisibilityController, {
     nextSubtitleVisibility,
 } from '@project/common/playback/controllers/subtitle-visibility-controller';
 
-const harness = (visibility: SubtitleVisibility, paused = false) => {
+const harness = (visibility: SubtitleVisibility, options?: { readonly paused: boolean }) => {
     const visibilityChanged = jest.fn();
     const controller = new SubtitleVisibilityController({ visibilityChanged });
-    controller.replacePlan(visibility, paused);
+    controller.replacePlan(visibility, { paused: options?.paused ?? false });
     visibilityChanged.mockClear();
     return { controller, visibilityChanged };
 };
@@ -16,13 +16,18 @@ const harness = (visibility: SubtitleVisibility, paused = false) => {
 describe('subtitle visibility mode', () => {
     it('toggles both values and formats its notification', () => {
         const whilePaused = nextSubtitleVisibility(SubtitleVisibility.whenDue);
-        const whenDue = nextSubtitleVisibility(whilePaused);
+        const whileManuallyPaused = nextSubtitleVisibility(whilePaused);
+        const whenDue = nextSubtitleVisibility(whileManuallyPaused);
 
-        expect([whilePaused, whenDue]).toEqual([SubtitleVisibility.whilePaused, SubtitleVisibility.whenDue]);
-        expect(formatSubtitleVisibilityNotification(whilePaused)).toEqual({
+        expect([whilePaused, whileManuallyPaused, whenDue]).toEqual([
+            SubtitleVisibility.whilePaused,
+            SubtitleVisibility.whileManuallyPaused,
+            SubtitleVisibility.whenDue,
+        ]);
+        expect(formatSubtitleVisibilityNotification(whileManuallyPaused)).toEqual({
             key: 'subtitle-visibility',
             locKey: 'info.subtitleVisibility',
-            valueLocKey: 'settings.subtitleVisibilityWhilePaused',
+            valueLocKey: 'settings.subtitleVisibilityWhileManuallyPaused',
         });
     });
 });
@@ -55,11 +60,36 @@ describe('SubtitleVisibilityController', () => {
         expect(controller.subtitlesVisible).toBe(false);
     });
 
+    it('keeps subtitles hidden through PlaybackEngine auto-pause and reveals them for other pauses', () => {
+        const { controller } = harness(SubtitleVisibility.whileManuallyPaused);
+        expect(controller.subtitlesVisible).toBe(false);
+        controller.autoPaused();
+        controller.playbackPaused();
+        expect(controller.subtitlesVisible).toBe(false);
+        controller.autoPauseResumeDelayStarted();
+        expect(controller.subtitlesVisible).toBe(false);
+        controller.playbackStarted();
+        controller.playbackPaused();
+        expect(controller.subtitlesVisible).toBe(true);
+        controller.playbackStarted();
+        expect(controller.subtitlesVisible).toBe(false);
+    });
+
+    it('keeps an active automatic pause hidden when the visibility setting changes', () => {
+        const { controller } = harness(SubtitleVisibility.whilePaused);
+        controller.autoPaused();
+        controller.replacePlan(SubtitleVisibility.whileManuallyPaused, { paused: true });
+        controller.playbackPaused();
+        expect(controller.subtitlesVisible).toBe(false);
+        controller.userSeeked({ paused: true });
+        expect(controller.subtitlesVisible).toBe(true);
+    });
+
     it('preserves an automatic reading phase when an equivalent plan is replaced', () => {
         const { controller } = harness(SubtitleVisibility.whilePaused);
         controller.autoPaused();
         controller.autoPauseResumeDelayStarted();
-        controller.replacePlan(SubtitleVisibility.whilePaused, true);
+        controller.replacePlan(SubtitleVisibility.whilePaused, { paused: true });
         controller.playbackPaused();
         expect(controller.subtitlesVisible).toBe(false);
     });
@@ -75,12 +105,12 @@ describe('SubtitleVisibilityController', () => {
     it('ends an automatic pause on user seeks while preserving paused-frame visibility', () => {
         const pausedHarness = harness(SubtitleVisibility.whilePaused);
         pausedHarness.controller.autoPaused();
-        pausedHarness.controller.userSeeked(true);
+        pausedHarness.controller.userSeeked({ paused: true });
         expect(pausedHarness.controller.subtitlesVisible).toBe(true);
 
         const playingHarness = harness(SubtitleVisibility.whilePaused);
         playingHarness.controller.autoPaused();
-        playingHarness.controller.userSeeked(false);
+        playingHarness.controller.userSeeked({ paused: false });
         expect(playingHarness.controller.subtitlesVisible).toBe(false);
     });
 
@@ -89,18 +119,18 @@ describe('SubtitleVisibilityController', () => {
         controller.autoPaused();
         controller.autoPauseResumeDelayStarted();
 
-        controller.autoPauseCancelled(true);
+        controller.autoPauseCancelled({ paused: true });
 
         expect(controller.subtitlesVisible).toBe(true);
     });
 
     it('reconciles visibility from current playback state when its plan is replaced', () => {
         const playingHarness = harness(SubtitleVisibility.whenDue);
-        playingHarness.controller.replacePlan(SubtitleVisibility.whilePaused, false);
+        playingHarness.controller.replacePlan(SubtitleVisibility.whilePaused, { paused: false });
         expect(playingHarness.controller.subtitlesVisible).toBe(false);
 
         const pausedHarness = harness(SubtitleVisibility.whenDue);
-        pausedHarness.controller.replacePlan(SubtitleVisibility.whilePaused, true);
+        pausedHarness.controller.replacePlan(SubtitleVisibility.whilePaused, { paused: true });
         expect(pausedHarness.controller.subtitlesVisible).toBe(true);
     });
 });

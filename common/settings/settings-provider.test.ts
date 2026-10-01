@@ -13,6 +13,32 @@ import { describe, expect, it } from '@jest/globals';
 import { PlayMode } from '@project/common';
 import { MockSettingsStorage } from '@project/common/settings/mock-settings-storage';
 
+it('defaults playback settings on older tracks and adjusts status and state trigger lengths', async () => {
+    const storage = new MockSettingsStorage();
+    const oldTrack = { ...defaultSettings.dictionaryTracks[0], dictionaryPlaybackConfig: undefined };
+    const playback = JSON.parse(JSON.stringify(defaultSettings.dictionaryTracks[0].dictionaryPlaybackConfig));
+    playback.onStatuses[0].autoPause = true;
+    playback.onStatuses.pop();
+    playback.onStates.push({ ...playback.onStates[0] });
+    playback.rules.autoPause.maxWords = 2;
+    const savedTrack = { ...defaultSettings.dictionaryTracks[0], dictionaryPlaybackConfig: playback };
+    storage.setData({ dictionaryTracks: [oldTrack, savedTrack] } as any);
+    const tracks = (await new SettingsProvider(storage).getAll()).dictionaryTracks;
+    expect(tracks).toHaveLength(defaultSettings.dictionaryTracks.length);
+    expect(tracks[0].dictionaryPlaybackConfig).toEqual(defaultSettings.dictionaryTracks[0].dictionaryPlaybackConfig);
+    expect(tracks[1].dictionaryPlaybackConfig.onStatuses).toHaveLength(
+        defaultSettings.dictionaryTracks[0].dictionaryPlaybackConfig.onStatuses.length
+    );
+    expect(tracks[1].dictionaryPlaybackConfig.onStates).toHaveLength(
+        defaultSettings.dictionaryTracks[0].dictionaryPlaybackConfig.onStates.length
+    );
+    expect(tracks[1].dictionaryPlaybackConfig.onStatuses[0].autoPause).toBe(true);
+    expect(tracks[1].dictionaryPlaybackConfig.onStatuses.at(-1)).toEqual(
+        defaultSettings.dictionaryTracks[0].dictionaryPlaybackConfig.onStatuses.at(-1)
+    );
+    expect(tracks[1].dictionaryPlaybackConfig.rules.autoPause.maxWords).toBe(2);
+});
+
 it('starts at default settings', async () => {
     const provider = new SettingsProvider(new MockSettingsStorage());
     const initialSettings = await provider.getAll();

@@ -83,6 +83,32 @@ function makeDefaultDictionaryTokenAnnotationConfigs() {
     };
 }
 
+const defaultDictionaryTokenAnnotationConfig = makeDefaultDictionaryTokenAnnotationConfigs();
+export const NUM_TOKEN_STATUSES = defaultDictionaryTokenAnnotationConfig.onStatuses.length;
+export const NUM_TOKEN_STATES = defaultDictionaryTokenAnnotationConfig.onStates.length;
+
+const makeDefaultDictionaryPlaybackConfig = (): DictionaryTrack['dictionaryPlaybackConfig'] => {
+    const trigger = () => ({
+        autoPause: false,
+        condensed: false,
+        fastForward: false,
+        repeat: false,
+        wordVisibility: false,
+    });
+    const rule = () => ({ maxWords: 0, maxFrequency: 0 });
+    return {
+        onStatuses: Array.from({ length: NUM_TOKEN_STATUSES }, trigger),
+        onStates: Array.from({ length: NUM_TOKEN_STATES }, trigger),
+        rules: {
+            autoPause: rule(),
+            condensed: rule(),
+            fastForward: { ...rule(), rateByComprehension: { enabled: false } },
+            repeat: rule(),
+            wordVisibility: { ...rule(), hideWordsIndividuallyUntilThreshold: true, wholeSubtitleMatchThreshold: 1 },
+        },
+    };
+};
+
 const defaultDictionaryTrackSettings: DictionaryTrack = {
     dictionaryColorizeSubtitles: false,
     dictionaryAutoGenerateStatistics: false,
@@ -116,7 +142,8 @@ const defaultDictionaryTrackSettings: DictionaryTrack = {
         { display: true, color: '#0000FF', alpha: 'FF' },
         { display: false, color: '#FFFFFF', alpha: 'FF' },
     ],
-    dictionaryTokenAnnotationConfig: makeDefaultDictionaryTokenAnnotationConfigs(),
+    dictionaryTokenAnnotationConfig: defaultDictionaryTokenAnnotationConfig,
+    dictionaryPlaybackConfig: makeDefaultDictionaryPlaybackConfig(),
 };
 
 export const defaultSettings: AsbplayerSettings = {
@@ -191,6 +218,7 @@ export const defaultSettings: AsbplayerSettings = {
     fastForwardModePlaybackRate: 2.7,
     fastForwardPlaybackMinimumSkipIntervalMs: 500,
     repeatCountPreference: 0,
+    repeatsBeforeShowingSubtitles: 0,
     rememberPlaybackModes: false,
     lastPlaybackModes: [PlayMode.normal],
     lastPlaybackPositions: [],
@@ -336,8 +364,6 @@ export const defaultSettings: AsbplayerSettings = {
 };
 
 export const NUM_DICTIONARY_TRACKS = defaultSettings.dictionaryTracks.length;
-export const NUM_TOKEN_STATUSES = defaultDictionaryTrackSettings.dictionaryTokenAnnotationConfig.onStatuses.length;
-export const NUM_TOKEN_STATES = defaultDictionaryTrackSettings.dictionaryTokenAnnotationConfig.onStates.length;
 
 export interface AnkiFieldUiModel {
     key: string;
@@ -595,6 +621,26 @@ const ensureDictionaryTracksConsistency = ({ dictionaryTracks }: Partial<Asbplay
                 ...dt.dictionaryTokenStatusConfig[fullyKnownStatus],
                 display: dt.dictionaryColorizeFullyKnownTokens,
             };
+        }
+
+        // Existing tracks predate playback settings; new statuses and states need a trigger row.
+        if (!dt.dictionaryPlaybackConfig) (dt as any).dictionaryPlaybackConfig = makeDefaultDictionaryPlaybackConfig();
+        const playback = dt.dictionaryPlaybackConfig;
+        while (playback.onStatuses.length < NUM_TOKEN_STATUSES) {
+            playback.onStatuses.push({
+                ...defaultTrack.dictionaryPlaybackConfig.onStatuses[playback.onStatuses.length],
+            });
+        }
+        while (playback.onStatuses.length > NUM_TOKEN_STATUSES) {
+            playback.onStatuses.pop();
+        }
+        while (playback.onStates.length < NUM_TOKEN_STATES) {
+            playback.onStates.push({
+                ...defaultTrack.dictionaryPlaybackConfig.onStates[playback.onStates.length],
+            });
+        }
+        while (playback.onStates.length > NUM_TOKEN_STATES) {
+            playback.onStates.pop();
         }
 
         // Ensure dictionaryTokenAnnotationConfig exists

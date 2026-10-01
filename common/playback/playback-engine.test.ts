@@ -151,12 +151,13 @@ const flushPlaybackInitialization = flushPlaybackSaves;
 
 async function makePlaybackEngine(
     modes: PlayMode[],
-    timestampMs = 0,
-    subtitles: readonly IndexedSubtitleModel[] = [subtitle],
-    overrides: Partial<{
+    options?: Partial<{
+        timestampMs: number;
+        subtitles: readonly IndexedSubtitleModel[];
         paused: boolean;
         notifyPauseSynchronously: boolean;
         pause: () => void;
+        selectToken: (target: { readonly subtitleIndex: number; readonly tokenStart: number }) => boolean;
         play: () => Promise<void>;
         seek: (timestampMs: number) => Promise<void>;
         durationMs?: number;
@@ -168,8 +169,11 @@ async function makePlaybackEngine(
         playbackModesDisabled?: boolean;
         playbackPositionKeys?: readonly string[];
         profile?: string;
-    }> = {}
+    }>
 ) {
+    const overrides = options ?? {};
+    const timestampMs = overrides.timestampMs ?? 0;
+    const subtitles = overrides.subtitles ?? [subtitle];
     const driver = new FakeTimingDriver();
     driver.timestampMs = timestampMs;
     driver.isPaused = overrides.paused ?? false;
@@ -230,6 +234,7 @@ async function makePlaybackEngine(
         playbackPositionKeys: overrides.playbackPositionKeys ?? [],
         timingDriver: driver,
         callbacks: {
+            selectToken: overrides.selectToken,
             pause:
                 overrides.pause ??
                 (() => {
@@ -308,9 +313,125 @@ async function makePlaybackEngine(
     };
 }
 
+describe('adaptive fast-forward rate changes', () => {
+    const makeAdaptiveEngine = (settings?: Partial<AsbplayerSettings>) => {
+        const config = JSON.parse(JSON.stringify(defaultSettings.dictionaryTracks[0].dictionaryPlaybackConfig));
+        config.rules.fastForward.rateByComprehension.enabled = true;
+        const annotated: IndexedSubtitleModel = {
+            ...subtitle,
+            text: 'a b c d e',
+            tokenization: {
+                tokens: Array.from({ length: 5 }, (_, index) => ({
+                    pos: [index * 2, index * 2 + 1] as [number, number],
+                    states: [],
+                    status: index < 4 ? 5 : 1,
+                    groupingKey: `word-${index}`,
+                    readings: [],
+                })),
+            },
+        };
+        return makePlaybackEngine([PlayMode.fastForward], {
+            timestampMs: 1500,
+            subtitles: [annotated],
+            settings: {
+                playbackRate: 1.25,
+                fastForwardModePlaybackRate: 2.5,
+                dictionaryTracks: [
+                    { ...defaultSettings.dictionaryTracks[0], dictionaryPlaybackConfig: config },
+                    ...defaultSettings.dictionaryTracks.slice(1),
+                ],
+                ...settings,
+            },
+        });
+    };
+
+    it('updates the maximum rate to preserve a user-selected interpolated rate', async () => {
+        const harness = await makeAdaptiveEngine({ playbackRate: 1, fastForwardModePlaybackRate: 2 });
+        expect(harness.driver.playbackRateValue).toBe(1.5);
+        const changed = harness.playbackEngine.playbackRateChanged(1.6);
+        expect(changed?.playbackRate).toBe(2.2);
+        expect(harness.driver.playbackRateValue).toBe(1.6);
+    });
+
+    it.each([
+        { delta: 0.1, maximum: 2.6, effective: 1.925 },
+        { delta: -0.1, maximum: 2.4, effective: 1.825 },
+    ])(
+        'adjusts the fast-forward maximum by $delta and recalculates interpolation',
+        async ({ delta, maximum, effective }) => {
+            const harness = await makeAdaptiveEngine({ rememberPlaybackRate: true });
+            expect(harness.driver.playbackRateValue).toBe(1.875);
+
+            const changed = harness.playbackEngine.adjustPlaybackRate(delta);
+
+            expect(changed?.playbackRate).toBe(maximum);
+            expect(harness.driver.playbackRateValue).toBeCloseTo(effective);
+            expect(harness.savedSettings).toContainEqual({ fastForwardModePlaybackRate: maximum });
+            expect(harness.playbackEngine.playbackRateChanged(effective)?.notify).toBe(false);
+
+            harness.driver.discontinuity(3000);
+            expect(harness.driver.playbackRateValue).toBe(maximum);
+        }
+    );
+});
+
+describe('adaptive auto-pause selection', () => {
+    it.each([
+        {
+            visibility: SubtitleVisibility.whenDue,
+            expectedSelection: [{ subtitleIndex: 0, tokenStart: 4 }],
+        },
+        { visibility: SubtitleVisibility.whileManuallyPaused, expectedSelection: [] },
+    ])(
+        'selects a matching token only when the auto-pause subtitle is visible: $visibility',
+        async ({ visibility, expectedSelection }) => {
+            jest.useFakeTimers();
+            try {
+                const config = JSON.parse(JSON.stringify(defaultSettings.dictionaryTracks[0].dictionaryPlaybackConfig));
+                config.onStatuses[1].autoPause = true;
+                const annotated: IndexedSubtitleModel = {
+                    ...subtitle,
+                    text: 'one two',
+                    tokenization: {
+                        tokens: [
+                            { pos: [0, 3], states: [], status: 5, readings: [] },
+                            { pos: [4, 7], states: [], status: 1, readings: [] },
+                        ],
+                    },
+                };
+                const selected: { readonly subtitleIndex: number; readonly tokenStart: number }[] = [];
+                const harness = await makePlaybackEngine([PlayMode.autoPause], {
+                    timestampMs: 500,
+                    subtitles: [annotated],
+                    settings: {
+                        autoPausePreference: AutoPausePreference.atStart,
+                        subtitleVisibility: visibility,
+                        dictionaryTracks: [
+                            { ...defaultSettings.dictionaryTracks[0], dictionaryPlaybackConfig: config },
+                            ...defaultSettings.dictionaryTracks.slice(1),
+                        ],
+                    },
+                    selectToken: (target) => {
+                        selected.push(target);
+                        return true;
+                    },
+                });
+                await harness.driver.time(1000, 1000);
+                jest.advanceTimersByTime(0);
+                expect(harness.pauses).toEqual([1000]);
+                expect(selected).toEqual(expectedSelection);
+            } finally {
+                jest.useRealTimers();
+            }
+        }
+    );
+});
+
 describe('PlaybackEngine', () => {
     it('exposes the remember-aware initial subtitle offset to its consumers', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 0, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 0,
+            subtitles: [subtitle],
             settings: { lastSubtitleOffset: 375, rememberSubtitleOffset: false },
         });
 
@@ -356,20 +477,52 @@ describe('PlaybackEngine', () => {
         const harness = await makePlaybackEngine([PlayMode.autoPause]);
 
         const hiddenDuringPlayback = harness.playbackEngine.toggleSubtitleVisibility();
+        const whileManuallyPaused = harness.playbackEngine.toggleSubtitleVisibility();
         const alwaysVisible = harness.playbackEngine.toggleSubtitleVisibility();
 
         expect(harness.savedSettings).toEqual([
             { subtitleVisibility: SubtitleVisibility.whilePaused },
+            { subtitleVisibility: SubtitleVisibility.whileManuallyPaused },
             { subtitleVisibility: SubtitleVisibility.whenDue },
         ]);
-        expect([hiddenDuringPlayback?.valueLocKey, alwaysVisible?.valueLocKey]).toEqual([
+        expect([
+            hiddenDuringPlayback?.valueLocKey,
+            whileManuallyPaused?.valueLocKey,
+            alwaysVisible?.valueLocKey,
+        ]).toEqual([
             'settings.subtitleVisibilityWhilePaused',
+            'settings.subtitleVisibilityWhileManuallyPaused',
             'settings.subtitleVisibilityWhenDue',
         ]);
     });
 
+    it('keeps automatic pauses audio-only while revealing subtitles on other pauses', async () => {
+        const harness = await makePlaybackEngine([PlayMode.autoPause], {
+            timestampMs: 1500,
+            subtitles: [subtitle],
+            settings: {
+                subtitleVisibility: SubtitleVisibility.whileManuallyPaused,
+                autoPausePreference: AutoPausePreference.atEnd,
+            },
+        });
+
+        await harness.driver.time(1500);
+        expect(harness.playbackStates.at(-1)?.hiddenSubtitleIndexes).toEqual([0]);
+        await harness.driver.time(1999);
+        harness.driver.callbacks.onPlaybackPaused();
+        expect(harness.pauses).toEqual([1999]);
+        expect(harness.playbackStates.at(-1)?.hiddenSubtitleIndexes).toEqual([0]);
+
+        await harness.driver.start();
+        harness.driver.isPaused = true;
+        harness.driver.callbacks.onPlaybackPaused();
+        expect(harness.playbackStates.at(-1)?.hiddenSubtitleIndexes).toBeUndefined();
+    });
+
     it('does not change the engine-owned offset when settings are refreshed', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 0, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 0,
+            subtitles: [subtitle],
             settings: { lastSubtitleOffset: 375, rememberSubtitleOffset: false },
         });
 
@@ -387,7 +540,9 @@ describe('PlaybackEngine', () => {
 
     it('uses and updates the legacy local offset when app integration is unavailable', async () => {
         localStorage.setItem('offset', '375');
-        const harness = await makePlaybackEngine([PlayMode.normal], 0, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 0,
+            subtitles: [subtitle],
             appIntegration: false,
             settings: { rememberSubtitleOffset: true, lastSubtitleOffset: 900 },
         });
@@ -401,7 +556,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('publishes the offset when binding', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 0, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 0,
+            subtitles: [subtitle],
             settings: { lastSubtitleOffset: 375, playbackRate: 1.4 },
         });
 
@@ -438,7 +595,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('does not reset remembered playback state for an initial empty subtitle update', async () => {
-        const harness = await makePlaybackEngine([PlayMode.fastForward], 0, [], {
+        const harness = await makePlaybackEngine([PlayMode.fastForward], {
+            timestampMs: 0,
+            subtitles: [],
             settings: {
                 playbackRate: 1.4,
                 fastForwardModePlaybackRate: 2.7,
@@ -461,7 +620,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('publishes the active fast-forward rate when binding', async () => {
-        const harness = await makePlaybackEngine([PlayMode.fastForward], 0, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.fastForward], {
+            timestampMs: 0,
+            subtitles: [subtitle],
             settings: { fastForwardModePlaybackRate: 2.7 },
         });
 
@@ -502,7 +663,11 @@ describe('PlaybackEngine', () => {
     });
 
     it('refreshes the plan duration before binding', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 0, [subtitle], { settingsReady: false });
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 0,
+            subtitles: [subtitle],
+            settingsReady: false,
+        });
         harness.driver.durationMsReads = 0;
         harness.setDuration(12_000);
 
@@ -514,7 +679,11 @@ describe('PlaybackEngine', () => {
     });
 
     it('does not bind after unbinding invalidates a pending settings load', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 0, [subtitle], { settingsReady: false });
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 0,
+            subtitles: [subtitle],
+            settingsReady: false,
+        });
 
         harness.playbackEngine.bind();
         harness.playbackEngine.unbind();
@@ -528,7 +697,11 @@ describe('PlaybackEngine', () => {
     });
 
     it('reinitializes settings when binding again after an invalidated settings load', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 0, [subtitle], { settingsReady: false });
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 0,
+            subtitles: [subtitle],
+            settingsReady: false,
+        });
 
         harness.playbackEngine.bind();
         harness.playbackEngine.unbind();
@@ -543,7 +716,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('starts from the current time when binding after time has elapsed', async () => {
-        const harness = await makePlaybackEngine([PlayMode.autoPause], 0, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.autoPause], {
+            timestampMs: 0,
+            subtitles: [subtitle],
             settings: { autoPausePreference: AutoPausePreference.atStart },
             settingsReady: false,
             emitInitialDiscontinuity: true,
@@ -559,7 +734,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('uses playback settings loaded before ready instead of preserving constructor settings', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 0, [subtitleWithLongEnd], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 0,
+            subtitles: [subtitleWithLongEnd],
             durationMs: 70_000,
             settingsReady: false,
             settings: { rememberPlaybackModes: false, lastPlaybackPositions: [] },
@@ -585,7 +762,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('preserves every engine-owned playback setting across a post-ready settings change', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 2500, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 2500,
+            subtitles: [subtitle],
             settings: {
                 rememberPlaybackRate: true,
                 rememberPlaybackModes: true,
@@ -623,7 +802,7 @@ describe('PlaybackEngine', () => {
     });
 
     it('owns playback modes and rebuilds behavior from AsbplayerSettings', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 1500);
+        const harness = await makePlaybackEngine([PlayMode.normal], { timestampMs: 1500 });
 
         harness.playbackEngine.togglePlaybackMode(PlayMode.repeat);
         await harness.driver.time(1999);
@@ -638,7 +817,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('keeps playback modes normal when disabled', async () => {
-        const harness = await makePlaybackEngine([PlayMode.repeat], 0, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.repeat], {
+            timestampMs: 0,
+            subtitles: [subtitle],
             playbackModesDisabled: true,
         });
 
@@ -707,7 +888,7 @@ describe('PlaybackEngine', () => {
     });
 
     it('does not report a playback-mode reset when subtitles were already empty', async () => {
-        const harness = await makePlaybackEngine([PlayMode.repeat], 0, []);
+        const harness = await makePlaybackEngine([PlayMode.repeat], { timestampMs: 0, subtitles: [] });
 
         harness.playbackEngine.subtitlesChanged([]);
 
@@ -729,7 +910,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('rebuilds the plan after settings load before subtitles arrive', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 0, [], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 0,
+            subtitles: [],
             settingsReady: false,
             settings: { playbackRate: 1.4 },
         });
@@ -744,7 +927,11 @@ describe('PlaybackEngine', () => {
     });
 
     it('does not bind until settings are ready', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 0, [subtitle], { settingsReady: false });
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 0,
+            subtitles: [subtitle],
+            settingsReady: false,
+        });
 
         harness.playbackEngine.bind();
 
@@ -760,7 +947,11 @@ describe('PlaybackEngine', () => {
     });
 
     it('retries the settings read when an update arrives during initialization', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 0, [subtitle], { settingsReady: false });
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 0,
+            subtitles: [subtitle],
+            settingsReady: false,
+        });
 
         harness.playbackEngine.settingsChanged({ ...harness.settings, playbackRate: 1.5 });
         harness.resolveSettings(harness.settings);
@@ -770,7 +961,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('retries initialization when the profile changes before settings are ready', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 0, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 0,
+            subtitles: [subtitle],
             settingsReady: false,
             profile: 'old-profile',
         });
@@ -785,7 +978,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('restores remembered positions when settings load without changing the playback plan', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 0, [subtitleWithLongEnd], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 0,
+            subtitles: [subtitleWithLongEnd],
             durationMs: 70_000,
             settingsReady: false,
             playbackPositionKeys: ['video.mp4'],
@@ -813,7 +1008,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('reinitializes on a profile change without persisting the previous profile', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 0, [subtitleWithLongEnd], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 0,
+            subtitles: [subtitleWithLongEnd],
             durationMs: 70_000,
             playbackPositionKeys: ['video.mp4'],
             profile: 'old-profile',
@@ -836,7 +1033,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('applies a zero subtitle offset when rebinding', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 0, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 0,
+            subtitles: [subtitle],
             profile: 'old-profile',
             settings: {
                 rememberSubtitleOffset: true,
@@ -856,7 +1055,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('publishes the current playback settings when unbinding', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 0, [subtitleWithLongEnd], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 0,
+            subtitles: [subtitleWithLongEnd],
             settings: {
                 rememberPlaybackRate: true,
                 rememberSubtitleOffset: true,
@@ -898,7 +1099,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('does not overwrite newer playback positions when unbinding', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 0, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 0,
+            subtitles: [subtitle],
             durationMs: 70_000,
             playbackPositionKeys: ['video.mp4'],
         });
@@ -930,7 +1133,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('preserves a pending resume position when unbinding before resumption', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 0, [subtitleWithLongEnd], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 0,
+            subtitles: [subtitleWithLongEnd],
             durationMs: 70_000,
             playbackPositionKeys: ['video.mp4'],
             settings: {
@@ -957,7 +1162,7 @@ describe('PlaybackEngine', () => {
     });
 
     it('keeps visible subtitles stable when an unrelated setting changes', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 1500);
+        const harness = await makePlaybackEngine([PlayMode.normal], { timestampMs: 1500 });
         const showingCount = harness.showing.length;
 
         harness.playbackEngine.settingsChanged({ ...harness.settings, language: 'ja' });
@@ -966,7 +1171,7 @@ describe('PlaybackEngine', () => {
     });
 
     it('publishes a new state when only showing subtitles change', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 1500, [subtitle]);
+        const harness = await makePlaybackEngine([PlayMode.normal], { timestampMs: 1500, subtitles: [subtitle] });
         harness.playbackEngine.bind();
 
         harness.playbackEngine.subtitlesChanged([{ ...subtitle, start: 2000, end: 3000 }]);
@@ -989,7 +1194,10 @@ describe('PlaybackEngine', () => {
             track: 1,
             index: 1,
         };
-        const harness = await makePlaybackEngine([PlayMode.normal], 1500, [firstTrack, secondTrack]);
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 1500,
+            subtitles: [firstTrack, secondTrack],
+        });
 
         harness.playbackEngine.bind();
 
@@ -1029,7 +1237,9 @@ describe('PlaybackEngine', () => {
             track: 1,
             index: 1,
         };
-        const harness = await makePlaybackEngine([PlayMode.normal], 1500, [firstTrack, secondTrack], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 1500,
+            subtitles: [firstTrack, secondTrack],
             paused: true,
             settings: { subtitleVisibility: SubtitleVisibility.whilePaused },
         });
@@ -1055,7 +1265,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('retains a live playback rate across every post-ready settings change', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 1500, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 1500,
+            subtitles: [subtitle],
             settings: { rememberPlaybackRate: true },
         });
         harness.playbackEngine.bind();
@@ -1069,7 +1281,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('saves keybind playback-rate changes', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 1500, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 1500,
+            subtitles: [subtitle],
             settings: { rememberPlaybackRate: true },
         });
 
@@ -1079,7 +1293,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('owns and persists subtitle offset changes', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 1500, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 1500,
+            subtitles: [subtitle],
             settings: { rememberSubtitleOffset: true },
         });
 
@@ -1111,7 +1327,11 @@ describe('PlaybackEngine', () => {
     });
 
     it('publishes the paused timestamp and showing indexes as one state', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 1500, [subtitle], { paused: true });
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 1500,
+            subtitles: [subtitle],
+            paused: true,
+        });
         harness.playbackEngine.bind();
 
         expect(harness.playbackStates.at(-1)).toEqual({
@@ -1122,7 +1342,7 @@ describe('PlaybackEngine', () => {
     });
 
     it('publishes state for a non-standard seek callback', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 1500, [subtitle]);
+        const harness = await makePlaybackEngine([PlayMode.normal], { timestampMs: 1500, subtitles: [subtitle] });
         harness.playbackEngine.bind();
 
         harness.playbackEngine.seeked(2500);
@@ -1144,7 +1364,10 @@ describe('PlaybackEngine', () => {
             originalEnd: 2000,
             index: 1,
         };
-        const harness = await makePlaybackEngine([PlayMode.autoPause], 500, [firstSubtitle, nextSubtitle]);
+        const harness = await makePlaybackEngine([PlayMode.autoPause], {
+            timestampMs: 500,
+            subtitles: [firstSubtitle, nextSubtitle],
+        });
 
         await harness.driver.time(1200);
 
@@ -1165,7 +1388,9 @@ describe('PlaybackEngine', () => {
             originalEnd: 2000,
             index: 1,
         };
-        const harness = await makePlaybackEngine([PlayMode.autoPause], 500, [firstSubtitle, nextSubtitle], {
+        const harness = await makePlaybackEngine([PlayMode.autoPause], {
+            timestampMs: 500,
+            subtitles: [firstSubtitle, nextSubtitle],
             notifyPauseSynchronously: true,
         });
         harness.playbackStates.length = 0;
@@ -1186,14 +1411,11 @@ describe('PlaybackEngine', () => {
         const seekFinished = new Promise<void>((resolve) => {
             resolveSeek = resolve;
         });
-        const harness = await makePlaybackEngine(
-            [PlayMode.condensed, PlayMode.fastForward],
-            1500,
-            [subtitle, secondSubtitle],
-            {
-                seek: async () => seekFinished,
-            }
-        );
+        const harness = await makePlaybackEngine([PlayMode.condensed, PlayMode.fastForward], {
+            timestampMs: 1500,
+            subtitles: [subtitle, secondSubtitle],
+            seek: async () => seekFinished,
+        });
         harness.playbackEngine.bind();
         harness.playbackStates.length = 0;
 
@@ -1219,14 +1441,11 @@ describe('PlaybackEngine', () => {
         const seekFinished = new Promise<void>((resolve) => {
             resolveSeek = resolve;
         });
-        const harness = await makePlaybackEngine(
-            [PlayMode.condensed, PlayMode.fastForward],
-            1500,
-            [subtitle, secondSubtitle],
-            {
-                seek: async () => seekFinished,
-            }
-        );
+        const harness = await makePlaybackEngine([PlayMode.condensed, PlayMode.fastForward], {
+            timestampMs: 1500,
+            subtitles: [subtitle, secondSubtitle],
+            seek: async () => seekFinished,
+        });
         harness.playbackEngine.bind();
         harness.playbackStates.length = 0;
 
@@ -1248,7 +1467,7 @@ describe('PlaybackEngine', () => {
     });
 
     it('preserves internal repeat state when its discontinuity arrives', async () => {
-        const harness = await makePlaybackEngine([PlayMode.repeat], 1500);
+        const harness = await makePlaybackEngine([PlayMode.repeat], { timestampMs: 1500 });
         harness.playbackEngine.bind();
 
         await harness.driver.time(1999);
@@ -1259,7 +1478,10 @@ describe('PlaybackEngine', () => {
     });
 
     it('resumes through the adapter after a condensed seek', async () => {
-        const harness = await makePlaybackEngine([PlayMode.condensed], 1500, [subtitle, secondSubtitle]);
+        const harness = await makePlaybackEngine([PlayMode.condensed], {
+            timestampMs: 1500,
+            subtitles: [subtitle, secondSubtitle],
+        });
         harness.playbackEngine.bind();
 
         await harness.driver.time(2000);
@@ -1269,7 +1491,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('rebuilds playback boundaries from the subtitles provided by the media owner', async () => {
-        const harness = await makePlaybackEngine([PlayMode.autoPause], 500, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.autoPause], {
+            timestampMs: 500,
+            subtitles: [subtitle],
             settings: { autoPausePreference: AutoPausePreference.atStart },
         });
 
@@ -1282,7 +1506,7 @@ describe('PlaybackEngine', () => {
     });
 
     it('uses timing-driver time and engine correction tolerance for auto-pause seeks', async () => {
-        const harness = await makePlaybackEngine([PlayMode.autoPause], 1500);
+        const harness = await makePlaybackEngine([PlayMode.autoPause], { timestampMs: 1500 });
 
         await harness.driver.time(2100);
 
@@ -1291,7 +1515,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('auto-pauses without correcting the timestamp when correction is disabled', async () => {
-        const harness = await makePlaybackEngine([PlayMode.autoPause], 1500, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.autoPause], {
+            timestampMs: 1500,
+            subtitles: [subtitle],
             autoPauseCorrectionDisabled: true,
         });
 
@@ -1335,7 +1561,9 @@ describe('PlaybackEngine', () => {
             track: 2,
             index: 2,
         };
-        const harness = await makePlaybackEngine([PlayMode.autoPause], 1500, [first, connecting, future], {
+        const harness = await makePlaybackEngine([PlayMode.autoPause], {
+            timestampMs: 1500,
+            subtitles: [first, connecting, future],
             autoPauseCorrectionDisabled: true,
         });
 
@@ -1350,7 +1578,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('releases the automatic-pause subtitle snapshot on a user seek', async () => {
-        const harness = await makePlaybackEngine([PlayMode.autoPause], 1500, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.autoPause], {
+            timestampMs: 1500,
+            subtitles: [subtitle],
             autoPauseCorrectionDisabled: true,
         });
 
@@ -1365,7 +1595,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('publishes the released automatic-pause subtitle snapshot when a user seek is canceled', async () => {
-        const harness = await makePlaybackEngine([PlayMode.autoPause], 1500, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.autoPause], {
+            timestampMs: 1500,
+            subtitles: [subtitle],
             autoPauseCorrectionDisabled: true,
         });
 
@@ -1381,7 +1613,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('releases the automatic-pause subtitle snapshot when subtitles are replaced', async () => {
-        const harness = await makePlaybackEngine([PlayMode.autoPause], 1500, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.autoPause], {
+            timestampMs: 1500,
+            subtitles: [subtitle],
             autoPauseCorrectionDisabled: true,
         });
 
@@ -1396,7 +1630,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('publishes the released automatic-pause subtitle snapshot for an equivalent subtitle replacement', async () => {
-        const harness = await makePlaybackEngine([PlayMode.autoPause], 1500, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.autoPause], {
+            timestampMs: 1500,
+            subtitles: [subtitle],
             autoPauseCorrectionDisabled: true,
         });
 
@@ -1411,7 +1647,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('preserves an empty subtitle snapshot from the intended automatic-pause timestamp', async () => {
-        const harness = await makePlaybackEngine([PlayMode.autoPause], 1500, [subtitle, secondSubtitle], {
+        const harness = await makePlaybackEngine([PlayMode.autoPause], {
+            timestampMs: 1500,
+            subtitles: [subtitle, secondSubtitle],
             autoPauseCorrectionDisabled: true,
             settings: { subtitleTriggerEndOffset: 500 },
         });
@@ -1426,7 +1664,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('releases the automatic-pause subtitle snapshot when subtitle visibility changes', async () => {
-        const harness = await makePlaybackEngine([PlayMode.autoPause], 1500, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.autoPause], {
+            timestampMs: 1500,
+            subtitles: [subtitle],
             autoPauseCorrectionDisabled: true,
         });
 
@@ -1441,7 +1681,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('clears the internal marker when a seek fails', async () => {
-        const harness = await makePlaybackEngine([PlayMode.repeat], 1500, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.repeat], {
+            timestampMs: 1500,
+            subtitles: [subtitle],
             seek: async () => {
                 throw new Error('seek failed');
             },
@@ -1457,7 +1699,7 @@ describe('PlaybackEngine', () => {
         jest.useFakeTimers();
         const warning = jest.spyOn(console, 'warn').mockImplementation(() => {});
         try {
-            const harness = await makePlaybackEngine([PlayMode.repeat], 1500);
+            const harness = await makePlaybackEngine([PlayMode.repeat], { timestampMs: 1500 });
             harness.driver.internalSeekCompletionPromise = new Promise(() => {});
 
             const update = harness.driver.time(2100);
@@ -1485,7 +1727,9 @@ describe('PlaybackEngine', () => {
             originalStart: 61_000,
             originalEnd: 62_000,
         };
-        const harness = await makePlaybackEngine([PlayMode.repeat], 61_500, [subtitleAtOneMinute], {
+        const harness = await makePlaybackEngine([PlayMode.repeat], {
+            timestampMs: 61_500,
+            subtitles: [subtitleAtOneMinute],
             durationMs: 70_000,
             playbackPositionKeys: ['video.mp4'],
             seek: async (targetTimestampMs) => {
@@ -1501,7 +1745,11 @@ describe('PlaybackEngine', () => {
     });
 
     it('does not produce non-finite seeks when duration is unavailable', async () => {
-        const harness = await makePlaybackEngine([PlayMode.autoPause], 1500, [subtitle], { durationMs: Number.NaN });
+        const harness = await makePlaybackEngine([PlayMode.autoPause], {
+            timestampMs: 1500,
+            subtitles: [subtitle],
+            durationMs: Number.NaN,
+        });
         harness.playbackEngine.bind();
 
         await harness.driver.time(2100);
@@ -1510,7 +1758,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('restores engine-owned remembered modes when settings enable mode remembering', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 0, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 0,
+            subtitles: [subtitle],
             settings: {
                 rememberPlaybackModes: false,
                 lastPlaybackModes: [PlayMode.repeat],
@@ -1531,7 +1781,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('defers remembered modes until binding when settings change before subtitles load', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 0, [], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 0,
+            subtitles: [],
             settings: {
                 rememberPlaybackModes: false,
                 lastPlaybackModes: [PlayMode.repeat],
@@ -1640,7 +1892,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('updates and remembers the normal plan rate while fast-forward is enabled but inactive', async () => {
-        const harness = await makePlaybackEngine([PlayMode.fastForward], 1500, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.fastForward], {
+            timestampMs: 1500,
+            subtitles: [subtitle],
             settings: { rememberPlaybackRate: true },
         });
         harness.playbackEngine.bind();
@@ -1660,7 +1914,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('rounds playback rates to thousandths and clamps them below the minimum', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 0, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 0,
+            subtitles: [subtitle],
             settings: { rememberPlaybackRate: true },
         });
         harness.playbackEngine.bind();
@@ -1677,7 +1933,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('updates and remembers the active fast-forward rate when remembering is enabled', async () => {
-        const harness = await makePlaybackEngine([PlayMode.fastForward], 2500, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.fastForward], {
+            timestampMs: 2500,
+            subtitles: [subtitle],
             settings: { rememberPlaybackRate: true },
         });
         harness.playbackEngine.bind();
@@ -1690,7 +1948,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('updates the active fast-forward rate when the applied media rate is stale', async () => {
-        const harness = await makePlaybackEngine([PlayMode.fastForward], 0, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.fastForward], {
+            timestampMs: 0,
+            subtitles: [subtitle],
             settings: { rememberPlaybackRate: true },
         });
         harness.playbackEngine.bind();
@@ -1704,7 +1964,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('keeps assigning custom native rate changes to fast-forward', async () => {
-        const harness = await makePlaybackEngine([PlayMode.fastForward], 2500, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.fastForward], {
+            timestampMs: 2500,
+            subtitles: [subtitle],
             settings: { rememberPlaybackRate: true },
         });
         harness.playbackEngine.bind();
@@ -1719,7 +1981,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('does not remember the active fast-forward rate when remembering is disabled', async () => {
-        const harness = await makePlaybackEngine([PlayMode.fastForward], 2500, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.fastForward], {
+            timestampMs: 2500,
+            subtitles: [subtitle],
             settings: { rememberPlaybackRate: false },
         });
         harness.playbackEngine.bind();
@@ -1730,7 +1994,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('does not persist changed playback rates when unbinding with remembering disabled', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 0, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 0,
+            subtitles: [subtitle],
             settings: { rememberPlaybackRate: false },
         });
         harness.playbackEngine.bind();
@@ -1744,7 +2010,9 @@ describe('PlaybackEngine', () => {
 
     it('always saves the current position, even when remembering is disabled', async () => {
         jest.useFakeTimers();
-        const harness = await makePlaybackEngine([PlayMode.normal], 1_000, [subtitleWithLongEnd], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 1_000,
+            subtitles: [subtitleWithLongEnd],
             playbackPositionKeys: ['first.srt', 'second.srt'],
         });
 
@@ -1764,7 +2032,9 @@ describe('PlaybackEngine', () => {
 
     it('saves on the ten-second interval when the current time changed', async () => {
         jest.useFakeTimers();
-        const harness = await makePlaybackEngine([PlayMode.normal], 0, [subtitleWithLongEnd], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 0,
+            subtitles: [subtitleWithLongEnd],
             playbackPositionKeys: ['video.mp4'],
         });
 
@@ -1783,7 +2053,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('offers a remembered position for explicit resumption', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 1_000, [subtitleWithLongEnd], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 1_000,
+            subtitles: [subtitleWithLongEnd],
             durationMs: 70_000,
             playbackPositionKeys: ['video.mp4'],
             settings: {
@@ -1805,7 +2077,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('uses the maximum subtitle end when restoring a remembered position', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 1_000, [subtitle, subtitleWithLongEnd], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 1_000,
+            subtitles: [subtitle, subtitleWithLongEnd],
             durationMs: 70_000,
             playbackPositionKeys: ['video.mp4'],
             settings: {
@@ -1820,7 +2094,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('recalculates the maximum subtitle end when subtitles change', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 1_000, [], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 1_000,
+            subtitles: [],
             durationMs: 70_000,
             playbackPositionKeys: ['video.mp4'],
             settings: {
@@ -1835,7 +2111,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('does not resume a remembered position when playback starts normally', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 1_000, [subtitleWithLongEnd], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 1_000,
+            subtitles: [subtitleWithLongEnd],
             durationMs: 70_000,
             playbackPositionKeys: ['video.mp4'],
             settings: {
@@ -1852,7 +2130,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('offers the lowest position across all restore keys only once per key set', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 1_000, [subtitleWithLongEnd], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 1_000,
+            subtitles: [subtitleWithLongEnd],
             durationMs: 70_000,
             settings: {
                 lastPlaybackPositions: [
@@ -1868,7 +2148,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('removes a remembered position at or beyond the last subtitle end', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 0, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 0,
+            subtitles: [subtitle],
             durationMs: 70_000,
             playbackPositionKeys: ['video.mp4'],
             settings: {
@@ -1885,7 +2167,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('saves on pause and seek discontinuities', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 62_000, [subtitleWithLongEnd], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 62_000,
+            subtitles: [subtitleWithLongEnd],
             playbackPositionKeys: ['video.mp4'],
         });
 
@@ -1905,7 +2189,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('saves the first user discontinuity after binding', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 0, [subtitleWithLongEnd], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 0,
+            subtitles: [subtitleWithLongEnd],
             playbackPositionKeys: ['video.mp4'],
             settingsReady: false,
             emitInitialDiscontinuity: true,
@@ -1923,7 +2209,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('accepts settings refreshes without preserving stale local playback positions', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 0, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 0,
+            subtitles: [subtitle],
             durationMs: 70_000,
             playbackPositionKeys: ['video.mp4'],
             settingsReady: false,
@@ -1942,7 +2230,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('accepts remembered positions for other playback owners during a settings refresh', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 0, [subtitleWithLongEnd], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 0,
+            subtitles: [subtitleWithLongEnd],
             durationMs: 70_000,
             playbackPositionKeys: ['video.mp4'],
             settingsReady: false,
@@ -1962,7 +2252,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('removes remembered positions when the current position is below 30 seconds', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 0, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 0,
+            subtitles: [subtitle],
             playbackPositionKeys: ['video.mp4'],
             settings: {
                 lastPlaybackPositions: [
@@ -1982,7 +2274,9 @@ describe('PlaybackEngine', () => {
     });
 
     it('removes an existing sub-30-second position instead of offering it for resumption', async () => {
-        const harness = await makePlaybackEngine([PlayMode.normal], 0, [subtitle], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 0,
+            subtitles: [subtitle],
             playbackPositionKeys: ['video.mp4'],
             settings: {
                 lastPlaybackPositions: [{ fileName: 'video.mp4', position: 29_999 }],
@@ -2005,7 +2299,9 @@ describe('PlaybackEngine', () => {
             originalStart: 61_000,
             originalEnd: 62_000,
         };
-        const harness = await makePlaybackEngine([PlayMode.normal], 0, [subtitleAtOneMinute], {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 0,
+            subtitles: [subtitleAtOneMinute],
             durationMs: 70_000,
             playbackPositionKeys: ['video.mp4'],
             settings: {
@@ -2021,6 +2317,60 @@ describe('PlaybackEngine', () => {
         expect(harness.plays).toHaveLength(1);
     });
 
+    it.each([
+        {
+            visibility: SubtitleVisibility.whenDue,
+            repeatsBeforeShowingSubtitles: 1,
+            firstPauseHidden: true,
+            repeatPlayingHidden: false,
+        },
+        {
+            visibility: SubtitleVisibility.whilePaused,
+            repeatsBeforeShowingSubtitles: 1,
+            firstPauseHidden: true,
+            repeatPlayingHidden: true,
+        },
+        {
+            visibility: SubtitleVisibility.whileManuallyPaused,
+            repeatsBeforeShowingSubtitles: 1,
+            firstPauseHidden: false,
+            repeatPlayingHidden: true,
+        },
+        {
+            visibility: SubtitleVisibility.whilePaused,
+            repeatsBeforeShowingSubtitles: 0,
+            firstPauseHidden: false,
+            repeatPlayingHidden: true,
+        },
+    ])(
+        'applies repeat suppression within $visibility with threshold $repeatsBeforeShowingSubtitles',
+        async ({ visibility, repeatsBeforeShowingSubtitles, firstPauseHidden, repeatPlayingHidden }) => {
+            const translation = { ...subtitle, track: 1, index: 1, text: 'translation' };
+            const harness = await makePlaybackEngine([PlayMode.repeat], {
+                timestampMs: 1500,
+                subtitles: [subtitle, translation],
+                settings: { repeatCountPreference: 1, repeatsBeforeShowingSubtitles, subtitleVisibility: visibility },
+            });
+
+            await harness.driver.time(1500);
+            expect(harness.playbackStates.at(-1)?.hiddenSubtitleIndexes).toEqual([0, 1]);
+            harness.driver.isPaused = true;
+            harness.driver.callbacks.onPlaybackPaused();
+            expect(harness.playbackStates.at(-1)?.hiddenSubtitleIndexes).toEqual(firstPauseHidden ? [0, 1] : undefined);
+
+            await harness.driver.start();
+            await harness.driver.time(1999);
+            harness.driver.discontinuity(1000);
+            await harness.driver.time(1500);
+            expect(harness.playbackStates.at(-1)?.hiddenSubtitleIndexes).toEqual(
+                repeatPlayingHidden ? [0, 1] : undefined
+            );
+            harness.driver.isPaused = true;
+            harness.driver.callbacks.onPlaybackPaused();
+            expect(harness.playbackStates.at(-1)?.hiddenSubtitleIndexes).toBeUndefined();
+        }
+    );
+
     const resumingAutoPauseSettings = {
         autoPauseResumeMode: AutoPauseResumeMode.subtitleLength,
         subtitleVisibility: SubtitleVisibility.whilePaused,
@@ -2035,7 +2385,9 @@ describe('PlaybackEngine', () => {
         jest.useFakeTimers();
 
         try {
-            const harness = await makePlaybackEngine([PlayMode.autoPause], 500, [subtitle], {
+            const harness = await makePlaybackEngine([PlayMode.autoPause], {
+                timestampMs: 500,
+                subtitles: [subtitle],
                 settings: resumingAutoPauseSettings,
             });
 
@@ -2064,7 +2416,9 @@ describe('PlaybackEngine', () => {
         jest.useFakeTimers();
 
         try {
-            const harness = await makePlaybackEngine([PlayMode.autoPause], 500, [subtitle], {
+            const harness = await makePlaybackEngine([PlayMode.autoPause], {
+                timestampMs: 500,
+                subtitles: [subtitle],
                 settings: resumingAutoPauseSettings,
                 notifyPauseSynchronously: true,
             });
@@ -2089,7 +2443,9 @@ describe('PlaybackEngine', () => {
         jest.useFakeTimers();
 
         try {
-            const harness = await makePlaybackEngine([PlayMode.autoPause], 500, [subtitle], {
+            const harness = await makePlaybackEngine([PlayMode.autoPause], {
+                timestampMs: 500,
+                subtitles: [subtitle],
                 settings: resumingAutoPauseSettings,
             });
 
@@ -2120,7 +2476,9 @@ describe('PlaybackEngine', () => {
                 originalStart: 60_000,
                 originalEnd: 61_000,
             };
-            const harness = await makePlaybackEngine([PlayMode.autoPause], 59_500, [lateSubtitle], {
+            const harness = await makePlaybackEngine([PlayMode.autoPause], {
+                timestampMs: 59_500,
+                subtitles: [lateSubtitle],
                 settings: resumingAutoPauseSettings,
                 durationMs: 70_000,
             });
@@ -2144,7 +2502,9 @@ describe('PlaybackEngine', () => {
         jest.useFakeTimers();
 
         try {
-            const harness = await makePlaybackEngine([PlayMode.autoPause], 500, [subtitle], {
+            const harness = await makePlaybackEngine([PlayMode.autoPause], {
+                timestampMs: 500,
+                subtitles: [subtitle],
                 settings: resumingAutoPauseSettings,
             });
             harness.playbackEngine.bind();
@@ -2167,7 +2527,9 @@ describe('PlaybackEngine', () => {
 
         try {
             const error = new Error('play failed');
-            const harness = await makePlaybackEngine([PlayMode.autoPause], 1500, [subtitle], {
+            const harness = await makePlaybackEngine([PlayMode.autoPause], {
+                timestampMs: 1500,
+                subtitles: [subtitle],
                 autoPauseCorrectionDisabled: true,
                 settings: {
                     ...resumingAutoPauseSettings,
@@ -2199,7 +2561,9 @@ describe('PlaybackEngine', () => {
         jest.useFakeTimers();
 
         try {
-            const harness = await makePlaybackEngine([PlayMode.autoPause], 1500, [subtitle], {
+            const harness = await makePlaybackEngine([PlayMode.autoPause], {
+                timestampMs: 1500,
+                subtitles: [subtitle],
                 autoPauseCorrectionDisabled: true,
                 settings: {
                     ...resumingAutoPauseSettings,
@@ -2229,7 +2593,9 @@ describe('PlaybackEngine', () => {
         jest.useFakeTimers();
 
         try {
-            const harness = await makePlaybackEngine([PlayMode.autoPause], 500, [subtitle], {
+            const harness = await makePlaybackEngine([PlayMode.autoPause], {
+                timestampMs: 500,
+                subtitles: [subtitle],
                 settings: { autoPausePreference: AutoPausePreference.atStart },
             });
 

@@ -1,5 +1,6 @@
 import type { IndexedSubtitleModel } from '@project/common';
 import { asbTrace } from '@project/common/util/log';
+import { SubtitleVisibility } from '@project/common/settings';
 import PlaybackTimeline from '@project/common/playback/timeline/playback-timeline';
 import type {
     PlaybackTimelineBlock,
@@ -21,6 +22,7 @@ export const maximumInternalSeekMismatchMs = 3000;
 export interface PlaybackPlanPause<T extends IndexedSubtitleModel> {
     readonly timestampMs: number;
     readonly playbackModeSubtitlesAtPause: readonly T[];
+    readonly autoPauseToken?: { readonly subtitleIndex: number; readonly tokenStart: number };
 }
 
 export interface PlaybackPlanExecutorCallbacks<T extends IndexedSubtitleModel> {
@@ -94,6 +96,7 @@ export default class PlaybackPlanExecutor<T extends IndexedSubtitleModel> {
     private operationGeneration = 0;
     private updateOperationGeneration = 0;
     private _isFastForwarding: boolean;
+    private currentPlaybackRate: number;
     private expectedDiscontinuity?: ExpectedDiscontinuity;
     private updateInProgress = false;
     private deferredDiscontinuity?: DeferredDiscontinuity;
@@ -105,6 +108,7 @@ export default class PlaybackPlanExecutor<T extends IndexedSubtitleModel> {
         });
         this.plan = plan;
         this._isFastForwarding = false;
+        this.currentPlaybackRate = plan.playbackRate;
         this.timeline = PlaybackTimeline.fromSubtitles(plan.timelineSubtitles);
         this.callbacks = callbacks;
         this.runner = new PlaybackTimelineRunner(this.timeline, timestampMs, {
@@ -125,6 +129,13 @@ export default class PlaybackPlanExecutor<T extends IndexedSubtitleModel> {
         return this._isFastForwarding;
     }
 
+    get fastForwardRateFraction(): number {
+        if (!this._isFastForwarding || !this.plan.fastForward) return 0;
+        const range = this.plan.fastForward.playbackRate - this.plan.playbackRate;
+        if (range === 0) return 1;
+        return Math.max(0, Math.min(1, (this.currentPlaybackRate - this.plan.playbackRate) / range));
+    }
+
     showingSubtitlesAt(timestampMs: number): readonly T[] {
         return this.timeline.showingSubtitlesAt(timestampMs);
     }
@@ -133,11 +144,17 @@ export default class PlaybackPlanExecutor<T extends IndexedSubtitleModel> {
         return this.timeline.invisibleSubtitlesAt(timestampMs);
     }
 
-    replacePlan(
-        plan: PlaybackPlan<T>,
-        timestampMs: number,
-        options: { readonly forcePlaybackRate?: boolean } = {}
-    ): void {
+    hideSubtitlesForRepeatAt(timestampMs: number): boolean {
+        if (this.plan.subtitleVisibility === SubtitleVisibility.whileManuallyPaused) return false;
+        const block =
+            this.timeline.repeatActionBlockAt(timestampMs) ?? this.timeline.lookupAt(timestampMs).state.current;
+        const revealAfter = block?.endAction?.repeat?.repeatsBeforeShowingSubtitles ?? 0;
+        if (revealAfter === 0) return false;
+        const repeats = block !== undefined && this.repeatedBlock?.id === block.id ? this.repeatedBlock.repeats : 0;
+        return repeats < revealAfter;
+    }
+
+    replacePlan(plan: PlaybackPlan<T>, timestampMs: number, options: { readonly forcePlaybackRate?: boolean }): void {
         asbTrace('playback/executor', 'Replacing playback plan in executor', {
             forcePlaybackRate: options.forcePlaybackRate === true,
             plan: playbackPlanTraceDetails(plan),
@@ -173,6 +190,7 @@ export default class PlaybackPlanExecutor<T extends IndexedSubtitleModel> {
         if (resetPlaybackRate) {
             this.callbacks.setPlaybackRate(plan.playbackRate);
             this._isFastForwarding = false;
+            this.currentPlaybackRate = plan.playbackRate;
             asbTrace('playback/executor', 'Reset playback rate while replacing plan', {
                 playbackRate: plan.playbackRate,
             });
@@ -186,7 +204,7 @@ export default class PlaybackPlanExecutor<T extends IndexedSubtitleModel> {
         this.updateOperationGeneration = this.operationGeneration;
         this.updateInProgress = true;
         try {
-            await this.runner.update(this.nextPlaybackActionTimestamp(timestampMs, options.lookaheadTimestampMs));
+            await this.runner.update(this.nextPlaybackActionTimestamp(timestampMs, options));
         } finally {
             this.updateInProgress = false;
             const deferredDiscontinuity = this.deferredDiscontinuity;
@@ -330,6 +348,7 @@ export default class PlaybackPlanExecutor<T extends IndexedSubtitleModel> {
         this.callbacks.pause({
             timestampMs: event.timestampMs,
             playbackModeSubtitlesAtPause: this.pauseSubtitlesFor([block]),
+            autoPauseToken: block.autoPauseToken,
         });
         return { autoPaused: true };
     }
@@ -349,14 +368,23 @@ export default class PlaybackPlanExecutor<T extends IndexedSubtitleModel> {
             this.callbacks.pause({
                 timestampMs: event.timestampMs,
                 playbackModeSubtitlesAtPause: this.pauseSubtitlesFor([block]),
+                autoPauseToken: block.autoPauseToken,
             });
         }
         if (repeat) {
             const blockId = block.id;
-            if (action.pause) {
+            if (action.pause || options.alreadyAutoPaused) {
+                const startPauseBlock = this.timeline
+                    .startActionsAt(block.playbackModeStartMs)
+                    .find(
+                        (candidate) =>
+                            candidate.endAction?.pause === true &&
+                            candidate.playbackModeEndMs === block.playbackModeEndMs
+                    );
+                const suppressionBlockId = block.startAction !== undefined ? blockId : startPauseBlock?.id;
                 this.pendingTarget = {
                     timestampMs: block.playbackModeStartMs,
-                    ...(block.startAction !== undefined ? { blockId } : {}),
+                    ...(suppressionBlockId === undefined ? {} : { blockId: suppressionBlockId }),
                 };
             } else {
                 const operation = ++this.operationGeneration;
@@ -382,10 +410,12 @@ export default class PlaybackPlanExecutor<T extends IndexedSubtitleModel> {
 
     private reconcilePlaybackRate(state: PlaybackTimelineState, options: PlaybackRateReconciliationOptions): void {
         const fastForwarding = fastForwardingForPlanState(this.plan, state);
-        const playbackRate = fastForwarding ? this.plan.fastForward!.playbackRate : this.plan.playbackRate;
+        const playbackRate =
+            state.current?.fastForwardPlaybackRate ??
+            (fastForwarding ? this.plan.fastForward!.playbackRate : this.plan.playbackRate);
         const modeChanged = fastForwarding !== this._isFastForwarding;
         this._isFastForwarding = fastForwarding;
-        if (modeChanged || options.forcePlaybackRate) {
+        if (modeChanged || options.forcePlaybackRate || this.currentPlaybackRate !== playbackRate) {
             asbTrace('playback/executor', 'Reconciled playback rate', {
                 fastForwarding,
                 forcePlaybackRate: options.forcePlaybackRate,
@@ -393,6 +423,7 @@ export default class PlaybackPlanExecutor<T extends IndexedSubtitleModel> {
                 playbackRate,
             });
             this.callbacks.setPlaybackRate(playbackRate);
+            this.currentPlaybackRate = playbackRate;
         }
     }
 
@@ -413,9 +444,11 @@ export default class PlaybackPlanExecutor<T extends IndexedSubtitleModel> {
             this.condensedOperation = operation;
             const shouldPause = this.shouldPauseForCondensedSeek(target);
             const seek = this.seek(target, { includeAtTimestamp: !shouldPause });
+            const startActions = this.timeline.startActionsAt(target);
             const pause = {
                 timestampMs: target,
-                playbackModeSubtitlesAtPause: this.pauseSubtitlesFor(this.timeline.startActionsAt(target)),
+                playbackModeSubtitlesAtPause: this.pauseSubtitlesFor(startActions),
+                autoPauseToken: startActions.find((block) => block.autoPauseToken)?.autoPauseToken,
             };
             if (shouldPause) this.callbacks.pause(pause);
             await seek;
@@ -450,12 +483,9 @@ export default class PlaybackPlanExecutor<T extends IndexedSubtitleModel> {
         const condensedTarget = lookup.segment.condensedTarget;
         if (condensedTarget === undefined) return;
         const autoPauseStartTarget = lookup.segment.nextStartActionTimestamp;
-        const target =
-            autoPauseStartTarget === undefined ? condensedTarget : Math.min(condensedTarget, autoPauseStartTarget);
-        if (
-            target === undefined ||
-            target - timestampMs + 1 + timestampComparisonToleranceMs < condensed.minimumSkipIntervalMs
-        ) {
+        const nextActionTarget = lookup.segment.nextPlaybackActionTimestamp;
+        const target = Math.min(condensedTarget, autoPauseStartTarget ?? Infinity, nextActionTarget ?? Infinity);
+        if (target - timestampMs + 1 + timestampComparisonToleranceMs < condensed.minimumSkipIntervalMs) {
             return;
         }
 
@@ -469,7 +499,10 @@ export default class PlaybackPlanExecutor<T extends IndexedSubtitleModel> {
         return target;
     }
 
-    private nextPlaybackActionTimestamp(timestampMs: number, lookaheadTimestampMs?: number): number {
+    private nextPlaybackActionTimestamp(
+        timestampMs: number,
+        { lookaheadTimestampMs }: { readonly lookaheadTimestampMs?: number }
+    ): number {
         const hasLookahead =
             lookaheadTimestampMs !== undefined &&
             Number.isFinite(lookaheadTimestampMs) &&

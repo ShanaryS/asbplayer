@@ -242,7 +242,12 @@ describe('SubtitleAnnotations public boundary', () => {
         ]);
         await completed;
 
-        const rendered = renderRichTextOntoSubtitles(subtitleAnnotations.subtitles, 'video', settings.dictionaryTracks);
+        const rendered = renderRichTextOntoSubtitles(
+            subtitleAnnotations.subtitles,
+            'video',
+            settings.dictionaryTracks,
+            { wordVisibilityEnabled: true }
+        );
         for (const index of [0, 1]) {
             const sink = document.createElement('div');
             sink.innerHTML = rendered.get(index)?.richText ?? '';

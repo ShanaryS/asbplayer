@@ -14,6 +14,8 @@ export interface PlaybackStateControllerOptions<T extends IndexedSubtitleModel> 
     readonly paused: () => boolean;
     readonly showingSubtitlesAt: (timestampMs: number) => readonly T[];
     readonly subtitlesVisible: () => boolean;
+    readonly hiddenSubtitleIndexes?: () => readonly number[];
+    readonly hideSubtitlesForRepeatAt?: (timestampMs: number) => boolean;
     readonly invisibleSubtitlesAt: (timestampMs: number) => readonly T[];
     readonly playbackStateChanged: (state: PlaybackState) => void;
     readonly now: () => number;
@@ -24,6 +26,8 @@ export default class PlaybackStateController<T extends IndexedSubtitleModel> {
     private readonly paused: () => boolean;
     private readonly showingSubtitlesAt: (timestampMs: number) => readonly T[];
     private readonly subtitlesVisible: () => boolean;
+    private readonly hiddenSubtitleIndexes?: () => readonly number[];
+    private readonly hideSubtitlesForRepeatAt?: (timestampMs: number) => boolean;
     private readonly invisibleSubtitlesAt: (timestampMs: number) => readonly T[];
     private readonly playbackStateChanged: (state: PlaybackState) => void;
     private readonly now: () => number;
@@ -38,6 +42,8 @@ export default class PlaybackStateController<T extends IndexedSubtitleModel> {
         paused,
         showingSubtitlesAt,
         subtitlesVisible,
+        hiddenSubtitleIndexes,
+        hideSubtitlesForRepeatAt,
         invisibleSubtitlesAt,
         playbackStateChanged,
         now,
@@ -45,6 +51,8 @@ export default class PlaybackStateController<T extends IndexedSubtitleModel> {
         this.paused = paused;
         this.showingSubtitlesAt = showingSubtitlesAt;
         this.subtitlesVisible = subtitlesVisible;
+        this.hiddenSubtitleIndexes = hiddenSubtitleIndexes;
+        this.hideSubtitlesForRepeatAt = hideSubtitlesForRepeatAt;
         this.invisibleSubtitlesAt = invisibleSubtitlesAt;
         this.playbackStateChanged = playbackStateChanged;
         this.now = now;
@@ -104,16 +112,20 @@ export default class PlaybackStateController<T extends IndexedSubtitleModel> {
         const showingSubtitleIndexes = this.showingSubtitlesAt(timestampMs).map(({ index }) => index);
         const invisibleSubtitleIndexes = this.invisibleSubtitlesAt(timestampMs).map(({ index }) => index);
         const subtitlesVisible = this.subtitlesVisible();
-        const hiddenSubtitleIndexes =
-            !subtitlesVisible && (showingSubtitleIndexes.length || invisibleSubtitleIndexes.length)
-                ? [...showingSubtitleIndexes, ...invisibleSubtitleIndexes].sort((left, right) => left - right)
-                : undefined;
+        const allIndexes = [...showingSubtitleIndexes, ...invisibleSubtitleIndexes];
+        const hiddenSubtitleIndexes = (
+            this.hideSubtitlesForRepeatAt?.(timestampMs) || !subtitlesVisible
+                ? allIndexes
+                : this.paused()
+                  ? []
+                  : allIndexes.filter((index) => this.hiddenSubtitleIndexes?.().includes(index))
+        ).sort((left, right) => left - right);
 
         const state: PlaybackState = {
             timestampMs,
             showingSubtitleIndexes,
             ...(invisibleSubtitleIndexes.length ? { invisibleSubtitleIndexes } : {}),
-            ...(hiddenSubtitleIndexes !== undefined ? { hiddenSubtitleIndexes } : {}),
+            ...(hiddenSubtitleIndexes.length ? { hiddenSubtitleIndexes } : {}),
             paused: this.paused(),
         };
         const previousState = this.lastNotifiedState;

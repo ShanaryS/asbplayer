@@ -33,7 +33,7 @@ export const cloneAnnotationConfig = (track: DictionaryTrack) => ({
     onStates: track.dictionaryTokenAnnotationConfig.onStates.map((config) => ({ ...config })),
 });
 
-export const makeDictionaryTrack = (overrides: Partial<DictionaryTrack> = {}): DictionaryTrack => {
+export const makeDictionaryTrack = (overrides?: Partial<DictionaryTrack>): DictionaryTrack => {
     const track = {
         ...defaultSettings.dictionaryTracks[0],
         dictionaryAnkiDecks: [...defaultSettings.dictionaryTracks[0].dictionaryAnkiDecks],
@@ -44,6 +44,23 @@ export const makeDictionaryTrack = (overrides: Partial<DictionaryTrack> = {}): D
             ...config,
         })),
         ...overrides,
+    };
+    const playback = track.dictionaryPlaybackConfig;
+    const dictionaryPlaybackConfig = {
+        ...playback,
+        onStatuses: playback.onStatuses.map((config) => ({ ...config })),
+        onStates: playback.onStates.map((config) => ({ ...config })),
+        rules: {
+            ...playback.rules,
+            autoPause: { ...playback.rules.autoPause },
+            condensed: { ...playback.rules.condensed },
+            fastForward: {
+                ...playback.rules.fastForward,
+                rateByComprehension: { ...playback.rules.fastForward.rateByComprehension },
+            },
+            repeat: { ...playback.rules.repeat },
+            wordVisibility: { ...playback.rules.wordVisibility },
+        },
     };
     const dictionaryTokenAnnotationConfig = cloneAnnotationConfig(track);
     dictionaryTokenAnnotationConfig.colorizeEnabled = track.dictionaryColorizeSubtitles;
@@ -70,7 +87,7 @@ export const makeDictionaryTrack = (overrides: Partial<DictionaryTrack> = {}): D
         track.dictionaryDisplayIgnoredTokenReadings &&
         track.dictionaryTokenReadingAnnotation !== TokenReadingAnnotation.NEVER;
 
-    return { ...track, dictionaryTokenAnnotationConfig };
+    return { ...track, dictionaryPlaybackConfig, dictionaryTokenAnnotationConfig };
 };
 
 export const makeDictionaryTracks = (track = makeDictionaryTrack()) =>

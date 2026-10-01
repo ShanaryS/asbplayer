@@ -10,12 +10,18 @@ export interface SubtitleVisibilityNotification {
 }
 
 export const nextSubtitleVisibility = (visibility: SubtitleVisibility): SubtitleVisibility =>
-    visibility === SubtitleVisibility.whenDue ? SubtitleVisibility.whilePaused : SubtitleVisibility.whenDue;
+    visibility === SubtitleVisibility.whenDue
+        ? SubtitleVisibility.whilePaused
+        : visibility === SubtitleVisibility.whilePaused
+          ? SubtitleVisibility.whileManuallyPaused
+          : SubtitleVisibility.whenDue;
 
 export const subtitleVisibilityLocKey = (visibility: SubtitleVisibility): string =>
     visibility === SubtitleVisibility.whilePaused
         ? 'settings.subtitleVisibilityWhilePaused'
-        : 'settings.subtitleVisibilityWhenDue';
+        : visibility === SubtitleVisibility.whileManuallyPaused
+          ? 'settings.subtitleVisibilityWhileManuallyPaused'
+          : 'settings.subtitleVisibilityWhenDue';
 
 export const formatSubtitleVisibilityNotification = (
     visibility: SubtitleVisibility
@@ -47,26 +53,26 @@ export default class SubtitleVisibilityController {
         return this._subtitlesVisible;
     }
 
-    replacePlan(visibility: SubtitleVisibility, paused: boolean): void {
+    replacePlan(visibility: SubtitleVisibility, { paused }: { readonly paused: boolean }): void {
         if (this.planInitialized && visibility === this.visibility) return;
         this.mutate(() => {
             this.planInitialized = true;
             this.visibility = visibility;
-            this.automaticPauseActive = false;
-            this._subtitlesVisible = this.visibleWhen(paused);
+            this.automaticPauseActive = paused && this.automaticPauseActive;
+            this._subtitlesVisible = this.visibleWhen({ paused });
         }, 'plan-replaced');
     }
 
     autoPaused(): void {
         this.mutate(() => {
             this.automaticPauseActive = true;
-            this._subtitlesVisible = true;
+            this._subtitlesVisible = this.visibility !== SubtitleVisibility.whileManuallyPaused;
         }, 'auto-paused');
     }
 
     autoPauseResumeDelayStarted(): void {
         this.mutate(() => {
-            this._subtitlesVisible = this.visibleWhen(false);
+            this._subtitlesVisible = this.visibleWhen({ paused: false });
         }, 'auto-pause-resume-delay-started');
     }
 
@@ -80,28 +86,28 @@ export default class SubtitleVisibilityController {
     playbackStarted(): void {
         this.mutate(() => {
             this.automaticPauseActive = false;
-            this._subtitlesVisible = this.visibleWhen(false);
+            this._subtitlesVisible = this.visibleWhen({ paused: false });
         }, 'playback-started');
     }
 
-    userSeeked(paused: boolean): void {
+    userSeeked({ paused }: { readonly paused: boolean }): void {
         this.mutate(() => {
             this.automaticPauseActive = false;
-            this._subtitlesVisible = this.visibleWhen(paused);
+            this._subtitlesVisible = this.visibleWhen({ paused });
         }, 'user-seeked');
     }
 
-    autoPauseCancelled(paused: boolean): void {
+    autoPauseCancelled({ paused }: { readonly paused: boolean }): void {
         this.mutate(() => {
             this.automaticPauseActive = false;
-            this._subtitlesVisible = this.visibleWhen(paused);
+            this._subtitlesVisible = this.visibleWhen({ paused });
         }, 'auto-pause-cancelled');
     }
 
     cancel(): void {
         this.mutate(() => {
             this.automaticPauseActive = false;
-            this._subtitlesVisible = this.visibleWhen(false);
+            this._subtitlesVisible = this.visibleWhen({ paused: false });
         }, 'cancelled');
     }
 
@@ -117,7 +123,10 @@ export default class SubtitleVisibilityController {
         this.callbacks.visibilityChanged();
     }
 
-    private visibleWhen(paused: boolean): boolean {
-        return this.visibility === SubtitleVisibility.whenDue || paused;
+    private visibleWhen({ paused }: { readonly paused: boolean }): boolean {
+        return (
+            this.visibility === SubtitleVisibility.whenDue ||
+            (paused && (this.visibility === SubtitleVisibility.whilePaused || !this.automaticPauseActive))
+        );
     }
 }

@@ -449,7 +449,8 @@ describe('SubtitleReader Netflix ruby text conversion', () => {
         const rendered = renderRichTextOntoSubtitles(
             [{ ...subtitle, index: 0 }],
             'video',
-            defaultSettings.dictionaryTracks
+            defaultSettings.dictionaryTracks,
+            { wordVisibilityEnabled: true }
         ).get(0);
         const sink = document.createElement('div');
         sink.innerHTML = rendered?.richText ?? '';

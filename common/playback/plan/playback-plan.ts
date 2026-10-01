@@ -6,17 +6,26 @@ import type {
     PlaybackTimelineRepeatAction,
     PlaybackTimelineState,
 } from '@project/common/playback/timeline/playback-timeline';
-import { AutoPauseResumeMode } from '@project/common/settings';
-import type { SubtitleVisibility } from '@project/common/settings';
+import {
+    AutoPauseResumeMode,
+    dictionaryPlaybackFeatureEnabled,
+    dictionaryPlaybackFeatures,
+    SubtitleVisibility,
+} from '@project/common/settings';
+import type { DictionaryTrack, DictionaryPlaybackFeature } from '@project/common/settings';
+import { subtitleWordVisibility, matchingPlaybackTokens } from '@project/common/playback/plan/playback-dictionary';
+import { sentenceComprehensionPercent } from '@project/common/dictionary-statistics/dictionary-statistics-view';
 import { compilePlaybackTimelineSubtitles } from '@project/common/playback/timeline/playback-timeline-compiler';
 import type { PlaybackTimelineSubtitles } from '@project/common/playback/timeline/playback-timeline-compiler';
 import {
     areSubtitleModelsEqual,
     arrayEquals,
+    fieldsEqual,
     normalizeFinite,
     normalizeNonNegative,
     normalizeNonPositive,
 } from '@project/common/util';
+import type { FieldComparators } from '@project/common/util';
 import { asbTrace } from '@project/common/util/log';
 
 export const playbackPlanCorrectionToleranceMs = 0.5;
@@ -66,6 +75,7 @@ export interface PlaybackPlan<T extends IndexedSubtitleModel> {
     readonly fastForward?: PlaybackPlanFastForward;
     readonly autoPause?: PlaybackPlanAutoPause;
     readonly subtitleVisibility: SubtitleVisibility;
+    readonly hiddenSubtitleIndexes?: readonly number[];
 }
 
 export interface PlaybackPlanInput<T extends IndexedSubtitleModel> {
@@ -81,6 +91,7 @@ export interface PlaybackPlanInput<T extends IndexedSubtitleModel> {
     readonly subtitleTriggerGapStartOffset: number;
     readonly subtitleTriggerGapEndOffset: number;
     readonly repeatCountPreference: number;
+    readonly repeatsBeforeShowingSubtitles: number;
     readonly condensedPlaybackMinimumSkipIntervalMs: number;
     readonly playbackRate: number;
     readonly fastForwardModePlaybackRate: number;
@@ -92,6 +103,7 @@ export interface PlaybackPlanInput<T extends IndexedSubtitleModel> {
     readonly autoPauseMaximumDurationMs: number;
     readonly autoPauseTimePerCharacterMs: number;
     readonly subtitleVisibility: SubtitleVisibility;
+    readonly dictionaryTracks?: readonly DictionaryTrack[];
 }
 
 const autoPausePreferenceIncludes = (
@@ -122,6 +134,7 @@ export const buildPlaybackPlan = <T extends IndexedSubtitleModel>({
     subtitleTriggerGapStartOffset,
     subtitleTriggerGapEndOffset,
     repeatCountPreference,
+    repeatsBeforeShowingSubtitles,
     condensedPlaybackMinimumSkipIntervalMs,
     playbackRate,
     fastForwardModePlaybackRate,
@@ -133,6 +146,7 @@ export const buildPlaybackPlan = <T extends IndexedSubtitleModel>({
     autoPauseMaximumDurationMs,
     autoPauseTimePerCharacterMs,
     subtitleVisibility,
+    dictionaryTracks = [],
 }: PlaybackPlanInput<T>): PlaybackPlan<T> => {
     const autoPauseEnabled = playModes.has(PlayMode.autoPause);
     const autoPauseAtStart =
@@ -140,6 +154,11 @@ export const buildPlaybackPlan = <T extends IndexedSubtitleModel>({
     const autoPauseAtEnd =
         autoPauseEnabled && autoPausePreferenceIncludes(autoPausePreference, AutoPausePreference.atEnd);
     const repeat = playModes.has(PlayMode.repeat);
+    const repeatCount = normalizeNonNegative(Math.floor(repeatCountPreference));
+    const revealAfterRepeats = Math.min(
+        normalizeNonNegative(Math.floor(repeatsBeforeShowingSubtitles)),
+        repeatCount || Infinity
+    );
     const startOffset = normalizeFinite(subtitleTriggerStartOffset);
     const gapEndOffset = normalizeNonPositive(subtitleTriggerGapEndOffset);
     const condensedMinimumSkipIntervalMs = normalizeNonNegative(condensedPlaybackMinimumSkipIntervalMs);
@@ -154,32 +173,145 @@ export const buildPlaybackPlan = <T extends IndexedSubtitleModel>({
         subtitleTriggerGapEndOffset,
     });
 
-    const blocks = timeline.blocks.map<PlaybackTimelineBlock>((block) => ({
-        ...block,
-        ...(autoPauseAtStart ? { startAction: true as const } : {}),
-        ...(autoPauseAtEnd || repeat
-            ? {
-                  endAction: {
-                      pause: autoPauseAtEnd,
-                      ...(repeat
-                          ? {
-                                repeat: {
-                                    count: normalizeNonNegative(Math.floor(repeatCountPreference)),
-                                },
-                            }
-                          : {}),
-                  },
-              }
-            : {}),
-    }));
+    const configuredFeatures = new Set(
+        dictionaryPlaybackFeatures.filter((feature) =>
+            dictionaryTracks.some((track) => dictionaryPlaybackFeatureEnabled(track.dictionaryPlaybackConfig, feature))
+        )
+    );
+    const configured = (feature: DictionaryPlaybackFeature) => configuredFeatures.has(feature);
+    const matchesByFeature = new Map<
+        DictionaryPlaybackFeature,
+        Map<number, ReturnType<typeof matchingPlaybackTokens>>
+    >();
+    for (const feature of dictionaryPlaybackFeatures) {
+        if (feature === 'wordVisibility' || !configured(feature)) continue;
+        if (feature === 'autoPause' && !autoPauseEnabled) continue;
+        if (feature === 'repeat' && !repeat) continue;
+        if (feature === 'condensed' && !playModes.has(PlayMode.condensed)) continue;
+        if (feature === 'fastForward' && !playModes.has(PlayMode.fastForward)) continue;
+        const matches = new Map<number, ReturnType<typeof matchingPlaybackTokens>>();
+        for (const subtitle of subtitles) {
+            const config = dictionaryTracks[subtitle.track]?.dictionaryPlaybackConfig;
+            if (config) matches.set(subtitle.index, matchingPlaybackTokens(subtitle, config, feature));
+        }
+        matchesByFeature.set(feature, matches);
+    }
+    const matching = (block: PlaybackTimelineBlock, feature: DictionaryPlaybackFeature) =>
+        block.subtitleIndexes.some((index) => (matchesByFeature.get(feature)?.get(index)?.length ?? 0) > 0);
+    const comprehensionRateByIndex = new Map<number, number>();
+    if (playModes.has(PlayMode.fastForward)) {
+        for (const subtitle of subtitles) {
+            const config = dictionaryTracks[subtitle.track]?.dictionaryPlaybackConfig;
+            if (!config?.rules.fastForward.rateByComprehension.enabled) continue;
+            const comprehensionPercent = sentenceComprehensionPercent(subtitle);
+            comprehensionRateByIndex.set(
+                subtitle.index,
+                playbackRate +
+                    Math.max(0, (comprehensionPercent - 60) / 40) * (fastForwardModePlaybackRate - playbackRate)
+            );
+        }
+    }
+    const blockRate = (block: PlaybackTimelineBlock): number | undefined => {
+        if (!playModes.has(PlayMode.fastForward)) return undefined;
+        if (matching(block, 'fastForward')) return playbackRate;
+        const comprehensionRates = block.subtitleIndexes
+            .map((index) => comprehensionRateByIndex.get(index))
+            .filter((rate): rate is number => rate !== undefined);
+        if (comprehensionRates.length) return Math.min(...comprehensionRates);
+        return configured('fastForward') ? fastForwardModePlaybackRate : undefined;
+    };
+    const autoPauseToken = (block: PlaybackTimelineBlock) => {
+        for (const index of block.subtitleIndexes) {
+            const token = matchesByFeature.get('autoPause')?.get(index)?.[0];
+            if (token) return { subtitleIndex: index, tokenStart: token.pos[0] };
+        }
+        return undefined;
+    };
+    const compileMatchingBlocks = (feature: DictionaryPlaybackFeature) =>
+        compilePlaybackTimelineSubtitles({
+            subtitles: subtitles.filter(
+                (subtitle) => (matchesByFeature.get(feature)?.get(subtitle.index)?.length ?? 0) > 0
+            ),
+            displaySubtitles: timeline.displaySubtitles,
+            durationMs: timeline.durationMs,
+            subtitleTriggerStartOffset,
+            subtitleTriggerEndOffset,
+            subtitleTriggerGapStartOffset,
+            subtitleTriggerGapEndOffset,
+        }).blocks;
+    const actionBlocks: PlaybackTimelineBlock[] = [];
+    if (autoPauseEnabled && configured('autoPause')) {
+        for (const block of compileMatchingBlocks('autoPause')) {
+            const pauseToken = autoPauseToken(block);
+            actionBlocks.push({
+                ...block,
+                id: `autoPause:${block.id}`,
+                ...(autoPauseAtStart ? { startAction: true as const } : {}),
+                ...(autoPauseAtEnd ? { endAction: { pause: true } } : {}),
+                ...(pauseToken === undefined ? {} : { autoPauseToken: pauseToken }),
+            });
+        }
+    }
+    if (repeat && configured('repeat')) {
+        for (const block of compileMatchingBlocks('repeat')) {
+            actionBlocks.push({
+                ...block,
+                id: `repeat:${block.id}`,
+                endAction: {
+                    pause: false,
+                    repeat: { count: repeatCount, repeatsBeforeShowingSubtitles: revealAfterRepeats },
+                },
+            });
+        }
+    }
+    const hiddenSubtitleIndexes =
+        subtitleVisibility === SubtitleVisibility.whenDue && configured('wordVisibility')
+            ? (displaySubtitles ?? subtitles)
+                  .filter((subtitle) => {
+                      const config = dictionaryTracks[subtitle.track]?.dictionaryPlaybackConfig;
+                      return config !== undefined && subtitleWordVisibility(subtitle, config).hideWholeSubtitle;
+                  })
+                  .map((subtitle) => subtitle.index)
+            : [];
+    const condensedBlocks =
+        playModes.has(PlayMode.condensed) && configured('condensed') ? compileMatchingBlocks('condensed') : undefined;
+
+    const pauseThisBlock = !configured('autoPause');
+    const repeatThisBlock = !configured('repeat');
+    const blocks = timeline.blocks.map<PlaybackTimelineBlock>((block) => {
+        const fastForwardPlaybackRate = blockRate(block);
+        return {
+            ...block,
+            ...(autoPauseAtStart && pauseThisBlock ? { startAction: true as const } : {}),
+            ...(fastForwardPlaybackRate === undefined ? {} : { fastForwardPlaybackRate }),
+            ...((autoPauseAtEnd && pauseThisBlock) || (repeat && repeatThisBlock)
+                ? {
+                      endAction: {
+                          pause: autoPauseAtEnd && pauseThisBlock,
+                          ...(repeat && repeatThisBlock
+                              ? {
+                                    repeat: {
+                                        count: repeatCount,
+                                        repeatsBeforeShowingSubtitles: revealAfterRepeats,
+                                    },
+                                }
+                              : {}),
+                      },
+                  }
+                : {}),
+        };
+    });
 
     const plan: PlaybackPlan<T> = {
         timelineSubtitles: {
             ...timeline,
             blocks,
+            ...(actionBlocks.length ? { actionBlocks } : {}),
+            ...(condensedBlocks === undefined ? {} : { condensedBlocks }),
         },
         playbackRate,
         subtitleVisibility,
+        hiddenSubtitleIndexes,
         ...(autoPauseEnabled
             ? {
                   autoPause: {
@@ -246,7 +378,9 @@ export const fastForwardingForPlanState = <T extends IndexedSubtitleModel>(
     plan: PlaybackPlan<T>,
     state: PlaybackTimelineState
 ): boolean => {
-    if (plan.fastForward === undefined || state.current !== undefined) return false;
+    if (plan.fastForward === undefined) return false;
+    if (state.current !== undefined)
+        return (state.current.fastForwardPlaybackRate ?? plan.playbackRate) > plan.playbackRate;
 
     const previousGapEdge = state.previous?.subtitleTriggerGapStartOffsetMs;
     const nextGapEdge = state.next?.subtitleTriggerGapEndOffsetMs;
@@ -263,85 +397,59 @@ export const fastForwardingForPlanState = <T extends IndexedSubtitleModel>(
     return gapDurationMs + timestampComparisonToleranceMs >= plan.fastForward.minimumSkipIntervalMs;
 };
 
-type ObjectComparators<T extends object> = {
-    [K in keyof T]-?: (left: T, right: T) => boolean;
-};
-
-const playbackTimelineRepeatActionComparators: ObjectComparators<PlaybackTimelineRepeatAction> = {
-    count: (left, right) => left.count === right.count,
+const playbackTimelineRepeatActionComparators: FieldComparators<PlaybackTimelineRepeatAction> = {
+    count: (left, right) => left === right,
+    repeatsBeforeShowingSubtitles: (left, right) => left === right,
 };
 
 function arePlaybackTimelineRepeatActionsEqual(
     left: PlaybackTimelineRepeatAction | undefined,
     right: PlaybackTimelineRepeatAction | undefined
 ): boolean {
-    if (left === right) return true;
-    if (!left || !right) return false;
-
-    for (const key in playbackTimelineRepeatActionComparators) {
-        if (!playbackTimelineRepeatActionComparators[key as keyof PlaybackTimelineRepeatAction](left, right))
-            return false;
-    }
-    return true;
+    return fieldsEqual(left, right, playbackTimelineRepeatActionComparators);
 }
 
-const playbackTimelineEndActionComparators: ObjectComparators<PlaybackTimelineEndAction> = {
-    pause: (left, right) => left.pause === right.pause,
-    repeat: (left, right) => arePlaybackTimelineRepeatActionsEqual(left.repeat, right.repeat),
+const playbackTimelineEndActionComparators: FieldComparators<PlaybackTimelineEndAction> = {
+    pause: (left, right) => left === right,
+    repeat: (left, right) => arePlaybackTimelineRepeatActionsEqual(left, right),
 };
 
 function arePlaybackTimelineEndActionsEqual(
     left: PlaybackTimelineEndAction | undefined,
     right: PlaybackTimelineEndAction | undefined
 ): boolean {
-    if (left === right) return true;
-    if (!left || !right) return false;
-
-    for (const key in playbackTimelineEndActionComparators) {
-        if (!playbackTimelineEndActionComparators[key as keyof PlaybackTimelineEndAction](left, right)) return false;
-    }
-    return true;
+    return fieldsEqual(left, right, playbackTimelineEndActionComparators);
 }
 
-const playbackTimelineBlockComparators: ObjectComparators<PlaybackTimelineBlock> = {
-    id: (left, right) => left.id === right.id,
-    subtitleIndexes: (left, right) => arrayEquals(left.subtitleIndexes, right.subtitleIndexes),
-    playbackModeStartMs: (left, right) => left.playbackModeStartMs === right.playbackModeStartMs,
-    playbackModeEndMs: (left, right) => left.playbackModeEndMs === right.playbackModeEndMs,
-    playbackModeEndExclusiveMs: (left, right) => left.playbackModeEndExclusiveMs === right.playbackModeEndExclusiveMs,
-    subtitleTriggerGapEndOffsetMs: (left, right) =>
-        left.subtitleTriggerGapEndOffsetMs === right.subtitleTriggerGapEndOffsetMs,
-    subtitleTriggerGapStartOffsetMs: (left, right) =>
-        left.subtitleTriggerGapStartOffsetMs === right.subtitleTriggerGapStartOffsetMs,
-    startAction: (left, right) => left.startAction === right.startAction,
-    endAction: (left, right) => arePlaybackTimelineEndActionsEqual(left.endAction, right.endAction),
+const playbackTimelineBlockComparators: FieldComparators<PlaybackTimelineBlock> = {
+    id: (left, right) => left === right,
+    subtitleIndexes: (left, right) => arrayEquals(left, right),
+    playbackModeStartMs: (left, right) => left === right,
+    playbackModeEndMs: (left, right) => left === right,
+    playbackModeEndExclusiveMs: (left, right) => left === right,
+    subtitleTriggerGapEndOffsetMs: (left, right) => left === right,
+    subtitleTriggerGapStartOffsetMs: (left, right) => left === right,
+    startAction: (left, right) => left === right,
+    fastForwardPlaybackRate: (left, right) => left === right,
+    autoPauseToken: (left, right) =>
+        left?.subtitleIndex === right?.subtitleIndex && left?.tokenStart === right?.tokenStart,
+    endAction: (left, right) => arePlaybackTimelineEndActionsEqual(left, right),
 };
 
 function arePlaybackTimelineBlocksEqual(left: PlaybackTimelineBlock, right: PlaybackTimelineBlock): boolean {
-    if (left === right) return true;
-
-    for (const key in playbackTimelineBlockComparators) {
-        if (!playbackTimelineBlockComparators[key as keyof PlaybackTimelineBlock](left, right)) return false;
-    }
-    return true;
+    return fieldsEqual(left, right, playbackTimelineBlockComparators);
 }
 
-const playbackPlanCondensedComparators: ObjectComparators<PlaybackPlanCondensed> = {
-    minimumSkipIntervalMs: (left, right) => left.minimumSkipIntervalMs === right.minimumSkipIntervalMs,
-    pauseAtStart: (left, right) => left.pauseAtStart === right.pauseAtStart,
+const playbackPlanCondensedComparators: FieldComparators<PlaybackPlanCondensed> = {
+    minimumSkipIntervalMs: (left, right) => left === right,
+    pauseAtStart: (left, right) => left === right,
 };
 
 function arePlaybackPlanCondensedEqual(
     left: PlaybackPlanCondensed | undefined,
     right: PlaybackPlanCondensed | undefined
 ): boolean {
-    if (left === right) return true;
-    if (!left || !right) return false;
-
-    for (const key in playbackPlanCondensedComparators) {
-        if (!playbackPlanCondensedComparators[key as keyof PlaybackPlanCondensed](left, right)) return false;
-    }
-    return true;
+    return fieldsEqual(left, right, playbackPlanCondensedComparators);
 }
 
 export function playbackPlanAutoPauseResumesEqual(
@@ -380,71 +488,44 @@ function arePlaybackPlanAutoPausesEqual(
     return playbackPlanAutoPauseResumesEqual(left.resume, right.resume);
 }
 
-const playbackPlanFastForwardComparators: ObjectComparators<PlaybackPlanFastForward> = {
-    playbackRate: (left, right) => left.playbackRate === right.playbackRate,
-    minimumSkipIntervalMs: (left, right) => left.minimumSkipIntervalMs === right.minimumSkipIntervalMs,
+const playbackPlanFastForwardComparators: FieldComparators<PlaybackPlanFastForward> = {
+    playbackRate: (left, right) => left === right,
+    minimumSkipIntervalMs: (left, right) => left === right,
 };
 
 function arePlaybackPlanFastForwardsEqual(
     left: PlaybackPlanFastForward | undefined,
     right: PlaybackPlanFastForward | undefined
 ): boolean {
-    if (left === right) return true;
-    if (!left || !right) return false;
-
-    for (const key in playbackPlanFastForwardComparators) {
-        if (!playbackPlanFastForwardComparators[key as keyof PlaybackPlanFastForward](left, right)) return false;
-    }
-    return true;
+    return fieldsEqual(left, right, playbackPlanFastForwardComparators);
 }
 
-const playbackTimelineSubtitlesComparators: ObjectComparators<PlaybackTimelineSubtitles<IndexedSubtitleModel>> = {
-    durationMs: (left, right) => left.durationMs === right.durationMs,
-    blocks: (left, right) => arrayEquals(left.blocks, right.blocks, arePlaybackTimelineBlocksEqual),
-    displaySubtitles: (left, right) =>
-        arrayEquals(left.displaySubtitles, right.displaySubtitles, areSubtitleModelsEqual),
+const playbackTimelineSubtitlesComparators: FieldComparators<PlaybackTimelineSubtitles<IndexedSubtitleModel>> = {
+    durationMs: (left, right) => left === right,
+    blocks: (left, right) => arrayEquals(left, right, arePlaybackTimelineBlocksEqual),
+    actionBlocks: (left, right) => arrayEquals(left, right, arePlaybackTimelineBlocksEqual),
+    condensedBlocks: (left, right) => arrayEquals(left, right, arePlaybackTimelineBlocksEqual),
+    displaySubtitles: (left, right) => arrayEquals(left, right, areSubtitleModelsEqual),
 };
 
 function arePlaybackTimelineSubtitlesEqual(
     left: PlaybackTimelineSubtitles<IndexedSubtitleModel>,
     right: PlaybackTimelineSubtitles<IndexedSubtitleModel>
 ): boolean {
-    if (left === right) return true;
-
-    for (const key in playbackTimelineSubtitlesComparators) {
-        if (
-            !playbackTimelineSubtitlesComparators[key as keyof typeof playbackTimelineSubtitlesComparators](left, right)
-        ) {
-            return false;
-        }
-    }
-    return true;
+    return fieldsEqual(left, right, playbackTimelineSubtitlesComparators);
 }
 
-type PlaybackPlanComparators = {
-    [K in keyof PlaybackPlan<IndexedSubtitleModel>]-?: (
-        left: PlaybackPlan<IndexedSubtitleModel>[K],
-        right: PlaybackPlan<IndexedSubtitleModel>[K]
-    ) => boolean;
-};
-
-const playbackPlanComparators: PlaybackPlanComparators = {
+const playbackPlanComparators: FieldComparators<PlaybackPlan<IndexedSubtitleModel>> = {
     timelineSubtitles: (left, right) => arePlaybackTimelineSubtitlesEqual(left, right),
     playbackRate: (left, right) => left === right,
     condensed: (left, right) => arePlaybackPlanCondensedEqual(left, right),
     fastForward: (left, right) => arePlaybackPlanFastForwardsEqual(left, right),
     autoPause: (left, right) => arePlaybackPlanAutoPausesEqual(left, right),
     subtitleVisibility: (left, right) => left === right,
+    hiddenSubtitleIndexes: (left, right) => arrayEquals(left, right),
 };
 
 export const playbackPlansEqual = <T extends IndexedSubtitleModel>(
     left: PlaybackPlan<T>,
     right: PlaybackPlan<T>
-): boolean =>
-    left === right ||
-    (playbackPlanComparators.timelineSubtitles(left.timelineSubtitles, right.timelineSubtitles) &&
-        playbackPlanComparators.playbackRate(left.playbackRate, right.playbackRate) &&
-        playbackPlanComparators.condensed(left.condensed, right.condensed) &&
-        playbackPlanComparators.fastForward(left.fastForward, right.fastForward) &&
-        playbackPlanComparators.autoPause(left.autoPause, right.autoPause) &&
-        playbackPlanComparators.subtitleVisibility(left.subtitleVisibility, right.subtitleVisibility));
+): boolean => fieldsEqual(left, right, playbackPlanComparators);

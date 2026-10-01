@@ -136,6 +136,8 @@ export default class SubtitleController {
     refreshCurrentSubtitle: boolean;
     _preCacheDom;
     dictionaryTrackSettings?: DictionaryTrack[];
+    private wordVisibilityEnabled = true;
+    private playbackPaused = false;
     onOffsetChange?: (offset: number, previousOffset: number) => Promise<void>;
     onMouseOver?: (event: MouseEvent) => void;
     onMouseOut?: (event: MouseEvent) => void;
@@ -207,6 +209,21 @@ export default class SubtitleController {
             return true;
         }
         return false;
+    }
+
+    setWordVisibilityEnabled(enabled: boolean): void {
+        if (this.wordVisibilityEnabled === enabled) return;
+        this.wordVisibilityEnabled = enabled;
+        this.cacheHtml();
+        this.refreshCurrentSubtitle = true;
+        this.refreshShowingSubtitles();
+    }
+
+    setPlaybackPaused(paused: boolean): void {
+        if (this.playbackPaused === paused) return;
+        this.playbackPaused = paused;
+        this.bottomSubtitlesElementOverlay.refresh();
+        this.topSubtitlesElementOverlay.refresh();
     }
 
     private _tokenSelectionRoots(): HTMLElement[] {
@@ -385,6 +402,7 @@ export default class SubtitleController {
             fullscreenContentClassName: 'asbplayer-fullscreen-subtitles',
             offsetAnchor: OffsetAnchor.bottom,
             contentWidth: -1,
+            onContainerStyles: (container) => container.classList.toggle('asb-playback-paused', this.playbackPaused),
             onMouseOver: (event: MouseEvent) => this.onMouseOver?.(event),
             onMouseOut: (event: MouseEvent) => this.onMouseOut?.(event),
         };
@@ -396,6 +414,7 @@ export default class SubtitleController {
             fullscreenContentClassName: 'asbplayer-fullscreen-subtitles',
             offsetAnchor: OffsetAnchor.top,
             contentWidth: -1,
+            onContainerStyles: (container) => container.classList.toggle('asb-playback-paused', this.playbackPaused),
             onMouseOver: (event: MouseEvent) => this.onMouseOver?.(event),
             onMouseOut: (event: MouseEvent) => this.onMouseOut?.(event),
         };
@@ -452,6 +471,7 @@ export default class SubtitleController {
                     this.refreshCurrentSubtitle = true;
                 }
             }
+            this.context.subtitlesChanged();
         }
         const command: VideoToExtensionCommand<SubtitlesUpdatedFromVideoMessage> = {
             sender: 'asbplayer-video',
@@ -613,7 +633,9 @@ export default class SubtitleController {
     }
 
     private _buildSubtitlesHtml(subtitles: readonly IndexedSubtitleModel[]) {
-        const buffer = renderRichTextOntoSubtitles(subtitles, 'video', this.dictionaryTrackSettings);
+        const buffer = renderRichTextOntoSubtitles(subtitles, 'video', this.dictionaryTrackSettings, {
+            wordVisibilityEnabled: this.wordVisibilityEnabled,
+        });
 
         return subtitles.map((subtitle) => {
             const rendered = buffer.get(subtitle.index);

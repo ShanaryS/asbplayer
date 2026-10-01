@@ -20,6 +20,7 @@ describe('SubtitleController appearance rendering', () => {
         controllers.length = 0;
         document.body.replaceChildren();
         jest.useRealTimers();
+        Reflect.deleteProperty(document, 'fullscreenElement');
     });
 
     const controllerForVideo = () => {
@@ -30,6 +31,7 @@ describe('SubtitleController appearance rendering', () => {
                 video,
                 registeredVideoSrc: 'https://example.com/video.mp4',
                 currentTimeMs: 0,
+                subtitlesChanged: () => {},
             } as unknown as Binding,
             { publishStatisticsSnapshot: async () => {} } as unknown as DictionaryProvider,
             {
@@ -107,6 +109,87 @@ describe('SubtitleController appearance rendering', () => {
         expect(document.querySelector('span[data-track="5"]')?.className).toBe('asbplayer-subtitles-blurred');
         expect(document.querySelector('div[data-track="6"]')?.className).toBe('asbplayer-subtitles-blurred');
     });
+
+    it('rebuilds cached word visibility when subtitles are shown only while paused', () => {
+        const controller = controllerForVideo();
+        const track = makeDictionaryTrack();
+        track.dictionaryPlaybackConfig.onStatuses[TokenStatus.MATURE].wordVisibility = true;
+        controller.dictionaryTrackSettings = makeDictionaryTracks(track);
+        controller.setSubtitleSettings(defaultSettings);
+        controller.subtitles = [
+            makeSubtitle({
+                text: '語 学',
+                originalText: '語 学',
+                tokenization: {
+                    tokens: [
+                        makeToken({ pos: [0, 1], status: TokenStatus.MATURE }),
+                        makeToken({ pos: [2, 3], status: TokenStatus.UNKNOWN }),
+                    ],
+                },
+            }),
+        ];
+        controller.subtitles[0].tokenization!.tokens[0].status = TokenStatus.MATURE;
+        controller.subtitles[0].tokenization!.tokens[1].status = TokenStatus.UNKNOWN;
+        controller.cacheHtml();
+        controller.playbackStateChanged({ timestampMs: 0, showingSubtitleIndexes: [0], paused: false });
+        expect(
+            document.querySelector('.asbplayer-subtitles-container-bottom .asb-token-adaptive-hidden')
+        ).not.toBeNull();
+
+        controller.setWordVisibilityEnabled(false);
+        expect(document.querySelector('.asbplayer-subtitles-container-bottom .asb-token-adaptive-hidden')).toBeNull();
+        controller.setWordVisibilityEnabled(true);
+        expect(
+            document.querySelector('.asbplayer-subtitles-container-bottom .asb-token-adaptive-hidden')
+        ).not.toBeNull();
+    });
+
+    it.each(['bottom', 'top'] as const)(
+        'keeps adaptive word visibility in sync when the %s overlay enters and exits fullscreen',
+        (subtitleAlignment) => {
+            const controller = controllerForVideo();
+            const track = makeDictionaryTrack();
+            track.dictionaryPlaybackConfig.onStatuses[TokenStatus.MATURE].wordVisibility = true;
+            controller.dictionaryTrackSettings = makeDictionaryTracks(track);
+            controller.setPlaybackPaused(true);
+            controller.setSubtitleSettings({ ...defaultSettings, subtitleAlignment });
+            controller.subtitles = [
+                makeSubtitle({
+                    text: '語 学',
+                    tokenization: {
+                        tokens: [
+                            makeToken({ pos: [0, 1], status: TokenStatus.MATURE }),
+                            makeToken({ pos: [2, 3], status: TokenStatus.UNKNOWN }),
+                        ],
+                    },
+                }),
+            ];
+            controller.subtitles[0].tokenization!.tokens[0].status = TokenStatus.MATURE;
+            controller.subtitles[0].tokenization!.tokens[1].status = TokenStatus.UNKNOWN;
+            controller.cacheHtml();
+            controller.playbackStateChanged({ timestampMs: 0, showingSubtitleIndexes: [0], paused: true });
+
+            const hiddenWord = document.querySelector('.asbplayer-subtitles .asb-token-adaptive-hidden');
+            expect(hiddenWord).not.toBeNull();
+            expect(hiddenWord?.closest('.asb-playback-paused')).not.toBeNull();
+
+            Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: document.body });
+            document.dispatchEvent(new Event('fullscreenchange'));
+            expect(document.querySelector('.asbplayer-fullscreen-subtitles .asb-token-adaptive-hidden')).toBe(
+                hiddenWord
+            );
+            expect(hiddenWord?.closest('.asb-playback-paused')).not.toBeNull();
+
+            controller.setPlaybackPaused(false);
+            controller.playbackStateChanged({ timestampMs: 0, showingSubtitleIndexes: [0], paused: false });
+            expect(hiddenWord?.closest('.asb-playback-paused')).toBeNull();
+
+            Reflect.deleteProperty(document, 'fullscreenElement');
+            document.dispatchEvent(new Event('fullscreenchange'));
+            expect(document.querySelector('.asbplayer-subtitles .asb-token-adaptive-hidden')).toBe(hiddenWord);
+            expect(hiddenWord?.closest('.asb-playback-paused')).toBeNull();
+        }
+    );
 
     it('identifies rendered text subtitles for token selection', () => {
         const controller = controllerForVideo();

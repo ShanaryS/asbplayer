@@ -80,6 +80,7 @@ import {
     PauseOnHoverMode,
     SettingsProvider,
     SubtitleListPreference,
+    SubtitleVisibility,
     isSaveOnlySettings,
 } from '@project/common/settings';
 import { SubtitleReader } from '@project/common/subtitle-reader';
@@ -280,7 +281,7 @@ export default class Binding {
         this.notificationController = new NotificationController(this);
         this.mobileVideoOverlayController = new MobileVideoOverlayController(this, OffsetAnchor.top);
         this.subtitleController.onOffsetChange = () => {
-            this.playbackEngine.subtitlesChanged(this.subtitleController.subtitles);
+            this.subtitlesChanged();
             return this.mobileVideoOverlayController.updateModel();
         };
         this.mobileGestureController = new MobileGestureController(this);
@@ -366,6 +367,10 @@ export default class Binding {
 
     togglePlayMode(targetMode: PlayMode) {
         this.playbackEngine.togglePlaybackMode(targetMode);
+    }
+
+    subtitlesChanged(): void {
+        this.playbackEngine.subtitlesChanged(this.subtitleController.subtitles);
     }
 
     adjustPlaybackRate(delta: number): void {
@@ -520,6 +525,7 @@ export default class Binding {
                 }
             ),
             callbacks: {
+                selectToken: (target) => this.subtitleController.selectToken(target, { scrollIntoView: false }),
                 pause: () => this.pause(),
                 play: async () => {
                     await this.play();
@@ -532,6 +538,7 @@ export default class Binding {
                 },
                 setSubtitleOffset: (offset, options) => this.subtitleController.offset(offset, !options.notifyPlayer),
                 playbackStateChanged: (state) => {
+                    this.subtitleController.setPlaybackPaused(state.paused);
                     this.subtitleController.playbackStateChanged(state);
                     this._notifyPlaybackState(state);
                 },
@@ -1363,6 +1370,9 @@ export default class Binding {
         this.subtitleController.surroundingSubtitlesTimeRadius = currentSettings.surroundingSubtitlesTimeRadius;
         this.subtitleController.autoCopyCurrentSubtitle = currentSettings.autoCopyCurrentSubtitle;
         this.subtitleController.dictionaryTrackSettings = currentSettings.dictionaryTracks;
+        this.subtitleController.setWordVisibilityEnabled(
+            currentSettings.subtitleVisibility === SubtitleVisibility.whenDue
+        );
         this.subtitleController.autoCopyableTracks = currentSettings.autoCopyableTracks;
 
         const convertNetflixRubyChanged =
@@ -2007,7 +2017,7 @@ export default class Binding {
         this.playbackEngine.playbackPositionKeysChanged(
             this._playbackPositionKeys(nonEmptyTrackIndexes, subtitleFileNames)
         );
-        this.playbackEngine.subtitlesChanged(this.subtitleController.subtitles);
+        this.subtitlesChanged();
 
         this.subtitleController.showLoadedMessage(nonEmptyTrackIndexes);
         this.ankiUiSavedState = undefined;

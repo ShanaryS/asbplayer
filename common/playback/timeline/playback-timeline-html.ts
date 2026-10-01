@@ -30,6 +30,7 @@ export const buildPlaybackTimelineExportPlan = <T extends IndexedSubtitleModel>(
         subtitleTriggerGapEndOffset: settings.subtitleTriggerGapEndOffset,
         subtitleTriggerGapStartOffset: settings.subtitleTriggerGapStartOffset,
         repeatCountPreference: settings.repeatCountPreference,
+        repeatsBeforeShowingSubtitles: settings.repeatsBeforeShowingSubtitles,
         condensedPlaybackMinimumSkipIntervalMs: settings.streamingCondensedPlaybackMinimumSkipIntervalMs,
         playbackRate,
         fastForwardModePlaybackRate: settings.fastForwardModePlaybackRate,
@@ -417,11 +418,12 @@ export const playbackTimelineToHtml = <T extends IndexedSubtitleModel>({
                   durationSeconds,
                   plan.condensed.minimumSkipIntervalMs / 1000
               );
+    const actionBlocks = [...plan.timelineSubtitles.blocks, ...(plan.timelineSubtitles.actionBlocks ?? [])];
     const autoPause = [
-        ...markerIntervals(plan.timelineSubtitles.blocks, 'autoPause-start'),
-        ...markerIntervals(plan.timelineSubtitles.blocks, 'autoPause-end'),
+        ...markerIntervals(actionBlocks, 'autoPause-start'),
+        ...markerIntervals(actionBlocks, 'autoPause-end'),
     ];
-    const repeat = markerIntervals(plan.timelineSubtitles.blocks, 'repeat');
+    const repeat = markerIntervals(actionBlocks, 'repeat');
     const repeatTimestamps = new Set(repeat.map((value) => value.startSeconds));
     for (const value of autoPause) {
         if (repeatTimestamps.has(value.startSeconds)) value.className += ' autoPause-overlap';

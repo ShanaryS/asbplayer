@@ -41,6 +41,54 @@ const makeController = () => {
     return { controller, playbackStates, state, setNow: (value: number) => (nowMs = value) };
 };
 
+describe('adaptive word visibility', () => {
+    it('hides a whole subtitle only while playback is running', () => {
+        let paused = false;
+        const states: PlaybackState[] = [];
+        const controller = new PlaybackStateController({
+            paused: () => paused,
+            showingSubtitlesAt: () => [subtitles[0]],
+            invisibleSubtitlesAt: () => [],
+            subtitlesVisible: () => true,
+            hiddenSubtitleIndexes: () => [0],
+            playbackStateChanged: (state) => states.push(state),
+            now: () => 0,
+        });
+        controller.bind();
+        controller.notify(500, { force: false });
+        paused = true;
+        controller.notify(500, { force: false });
+        expect(states[0].hiddenSubtitleIndexes).toEqual([0]);
+        expect(states[1].hiddenSubtitleIndexes).toBeUndefined();
+    });
+});
+
+describe('repeat subtitle visibility', () => {
+    it('hides every displayed track before the repeat threshold, including during pauses', () => {
+        let paused = false;
+        let hideForRepeat = true;
+        const states: PlaybackState[] = [];
+        const controller = new PlaybackStateController({
+            paused: () => paused,
+            showingSubtitlesAt: () => [subtitles[0], subtitles[1]],
+            invisibleSubtitlesAt: () => [],
+            subtitlesVisible: () => true,
+            hideSubtitlesForRepeatAt: () => hideForRepeat,
+            playbackStateChanged: (state) => states.push(state),
+            now: () => 0,
+        });
+        controller.bind();
+        controller.notify(500, { force: false });
+        paused = true;
+        controller.notify(500, { force: false });
+        paused = false;
+        hideForRepeat = false;
+        controller.notify(500, { force: false });
+
+        expect(states.map((state) => state.hiddenSubtitleIndexes)).toEqual([[0, 1], [0, 1], undefined]);
+    });
+});
+
 describe('PlaybackStateController', () => {
     it('publishes invisible indexes for layout placeholders', () => {
         const playbackStates: PlaybackState[] = [];

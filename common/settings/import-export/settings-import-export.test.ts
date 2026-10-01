@@ -117,6 +117,77 @@ describe('omitPath', () => {
     });
 });
 
+it('preserves dictionary playback rules through settings export and import', () => {
+    const playback = JSON.parse(JSON.stringify(defaultSettings.dictionaryTracks[0].dictionaryPlaybackConfig));
+    playback.onStatuses[1].autoPause = true;
+    playback.rules.autoPause.maxWords = 2;
+    playback.rules.autoPause.maxFrequency = 0;
+    playback.rules.fastForward.rateByComprehension.enabled = true;
+    const settings = {
+        ...defaultSettings,
+        dictionaryTracks: defaultSettings.dictionaryTracks.map((track, index) =>
+            index === 0 ? { ...track, dictionaryPlaybackConfig: playback } : track
+        ),
+    };
+    const imported = validateSettings(mergeImportedSettings(settingsForExport(settings), defaultSettings));
+    expect(imported.dictionaryTracks?.[0].dictionaryPlaybackConfig).toEqual(playback);
+});
+
+it('requires current playback fields when a dictionary playback config is present', () => {
+    const legacy = JSON.parse(JSON.stringify(defaultSettings));
+    delete legacy.dictionaryTracks[0].dictionaryPlaybackConfig;
+    expect(() => validateSettings(legacy)).not.toThrow();
+
+    const missingFields = [
+        (config: any) => delete config.onStatuses,
+        (config: any) => delete config.onStatuses[0].autoPause,
+        (config: any) => delete config.onStates[0].repeat,
+        (config: any) => delete config.rules,
+        (config: any) => delete config.rules.autoPause,
+        (config: any) => delete config.rules.autoPause.maxWords,
+        (config: any) => delete config.rules.autoPause.maxFrequency,
+        (config: any) => delete config.rules.wordVisibility.hideWordsIndividuallyUntilThreshold,
+        (config: any) => delete config.rules.wordVisibility.wholeSubtitleMatchThreshold,
+        (config: any) => delete config.rules.fastForward.rateByComprehension,
+        (config: any) => delete config.rules.fastForward.rateByComprehension.enabled,
+    ];
+    for (const removeField of missingFields) {
+        const settings = JSON.parse(JSON.stringify(defaultSettings));
+        removeField(settings.dictionaryTracks[0].dictionaryPlaybackConfig);
+        expect(() => validateSettings(settings)).toThrow('Settings validation failed');
+    }
+});
+
+it('accepts only whole-subtitle match thresholds from one through one hundred percent', () => {
+    for (const threshold of [0.01, 0.5, 1]) {
+        const settings = JSON.parse(JSON.stringify(defaultSettings));
+        settings.dictionaryTracks[0].dictionaryPlaybackConfig.rules.wordVisibility.wholeSubtitleMatchThreshold =
+            threshold;
+        expect(() => validateSettings(settings)).not.toThrow();
+    }
+    for (const threshold of [0, 0.009, -0.1, 1.1, true]) {
+        const settings = JSON.parse(JSON.stringify(defaultSettings));
+        settings.dictionaryTracks[0].dictionaryPlaybackConfig.rules.wordVisibility.wholeSubtitleMatchThreshold =
+            threshold;
+        expect(() => validateSettings(settings)).toThrow('Settings validation failed');
+    }
+});
+
+it('requires a boolean for individual word hiding before the threshold', () => {
+    for (const value of [true, false]) {
+        const settings = JSON.parse(JSON.stringify(defaultSettings));
+        settings.dictionaryTracks[0].dictionaryPlaybackConfig.rules.wordVisibility.hideWordsIndividuallyUntilThreshold =
+            value;
+        expect(() => validateSettings(settings)).not.toThrow();
+    }
+    for (const value of [0, 1, 'true', null]) {
+        const settings = JSON.parse(JSON.stringify(defaultSettings));
+        settings.dictionaryTracks[0].dictionaryPlaybackConfig.rules.wordVisibility.hideWordsIndividuallyUntilThreshold =
+            value;
+        expect(() => validateSettings(settings)).toThrow('Settings validation failed');
+    }
+});
+
 it('excludes credentials from settings exports without mutating the settings', () => {
     const settings = {
         ...defaultSettings,

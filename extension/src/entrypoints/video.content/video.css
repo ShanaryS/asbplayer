@@ -389,3 +389,14 @@ div.asbplayer-fullscreen-subtitles > span {
 .asbplayer-color-scheme-light-dark {
     color-scheme: light dark !important;
 }
+
+.asbplayer-subtitles .asb-token-adaptive-hidden,
+.asbplayer-fullscreen-subtitles .asb-token-adaptive-hidden {
+    visibility: hidden;
+}
+
+.asb-playback-paused .asbplayer-subtitles .asb-token-adaptive-hidden,
+.asb-playback-paused .asbplayer-fullscreen-subtitles .asb-token-adaptive-hidden,
+.asb-subtitle-token-selected .asb-token-adaptive-hidden {
+    visibility: visible;
+}

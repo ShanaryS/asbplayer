@@ -535,6 +535,10 @@ interface Props {
     supportsDictionaryMatchAcrossScripts: boolean;
     supportsDictionaryTokenStatusDisplayAlpha: boolean;
     supportsDictionaryYomitanMecab: boolean;
+    supportsDictionaryPlayback: boolean;
+    selectedDictionaryTrack: number;
+    onSelectedDictionaryTrackChanged: (track: number) => void;
+    onPlaybackSettingsClick: () => void;
     onSettingChanged: <K extends keyof AsbplayerSettings>(key: K, value: AsbplayerSettings[K]) => Promise<void>;
     onViewKeyboardShortcuts: () => void;
     profiles: Profile[];
@@ -551,6 +555,10 @@ const DictionarySettingsTab: React.FC<Props> = ({
     supportsDictionaryMatchAcrossScripts,
     supportsDictionaryTokenStatusDisplayAlpha,
     supportsDictionaryYomitanMecab,
+    supportsDictionaryPlayback,
+    selectedDictionaryTrack,
+    onSelectedDictionaryTrackChanged,
+    onPlaybackSettingsClick,
     onSettingChanged,
     onViewKeyboardShortcuts,
     profiles,
@@ -560,7 +568,6 @@ const DictionarySettingsTab: React.FC<Props> = ({
     const { t } = useTranslation();
     const { ankiConnectUrl, ankiConnectApiKey, dictionaryTracks } = settings;
     const initialDictionaryTracksRef = useRef(dictionaryTracks);
-    const [selectedDictionaryTrack, setSelectedDictionaryTrack] = useState<number>(0);
     const [tokenAnnotationTarget, setTokenAnnotationTarget] = useState<TokenAnnotationConfigTarget>('video');
     const selectedDictionary = dictionaryTracks[selectedDictionaryTrack];
 
@@ -1140,7 +1147,11 @@ const DictionarySettingsTab: React.FC<Props> = ({
                         </Stack>
                     )}
                 </Stack>
-                <SettingsSection docs="docs/reference/settings#annotation">{t('settings.annotation')}</SettingsSection>
+                <div id="dictionary-annotation-settings">
+                    <SettingsSection docs="docs/reference/settings#annotation">
+                        {t('settings.annotation')}
+                    </SettingsSection>
+                </div>
                 <SettingsTextField
                     select
                     fullWidth
@@ -1151,7 +1162,7 @@ const DictionarySettingsTab: React.FC<Props> = ({
                     value={selectedDictionaryTrack}
                     onChange={(e) => {
                         const track = Number(e.target.value);
-                        setSelectedDictionaryTrack(track);
+                        onSelectedDictionaryTrackChanged(track);
                         setShowDictionaryWaniKaniApiToken(!dictionaryTracks[track].dictionaryWaniKaniApiToken);
                     }}
                 >
@@ -1334,6 +1345,25 @@ const DictionarySettingsTab: React.FC<Props> = ({
                                     </SettingsTextField>
                                 );
                             })}
+                            {supportsDictionaryPlayback && (
+                                <Typography variant="caption" color="textSecondary">
+                                    <Trans
+                                        i18nKey="settings.dictionaryEnabledHelper"
+                                        values={{
+                                            section: `${t('extension.settings.playback')} → ${t('settings.annotation')}`,
+                                        }}
+                                        components={[
+                                            <Link key={0} component="button" onClick={onPlaybackSettingsClick} />,
+                                            <Link
+                                                key={1}
+                                                href="https://docs.asbplayer.dev/docs/common-issues#enable-or-disable-annotation-for-a-track"
+                                                target="_blank"
+                                                rel="noreferrer"
+                                            />,
+                                        ]}
+                                    />
+                                </Typography>
+                            )}
                         </Stack>
                     </Box>
                 </Box>

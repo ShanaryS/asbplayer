@@ -12,7 +12,7 @@ It's possible to hide the subtitles in asbplayer through a few ways:
 
 - The [`Toggle subtitles`](./reference/settings.md#subtitles-keyboard-shortcuts) keyboard shortcut.
 - The [`Toggle subtitle track X in video`](./reference/settings.md#subtitles-keyboard-shortcuts) keyboard shortcuts.
-- The [`Show subtitles`](./reference/settings.md#show-subtitles) option in `Misc > Playback Modes`
+- The [`Show subtitles`](./reference/settings.md#show-subtitles) option in `Playback > Playback modes`
 
 ### asbplayer can't connect to Anki. It shows an error message e.g. 'Failed to fetch.'
 
@@ -89,6 +89,12 @@ Annotation is considered disabled if the following settings are set to these val
 - [`Display word frequency`](./reference/settings.md#display-word-frequency): _Nothing selected_ (empty value)
 - [`Display pitch accent (Japanese)`](./reference/settings.md#display-pitch-accent-japanese): _Nothing selected_ (empty value)
 - [`Display word definitions`](./reference/settings.md#display-word-definitions): _Nothing selected_ (empty value)
+- [`Auto-pause for these words`](./reference/settings.md#auto-pause-for-these-words): _Nothing selected_
+- [`Play these subtitles in condensed mode`](./reference/settings.md#play-these-subtitles-in-condensed-mode): _Nothing selected_
+- [`Play these subtitles at normal speed in fast-forward mode`](./reference/settings.md#play-these-subtitles-at-normal-speed-in-fast-forward-mode): _Nothing selected_
+- [`Repeat subtitles containing these words`](./reference/settings.md#repeat-subtitles-containing-these-words): _Nothing selected_
+- [`Show these words during playback`](./reference/settings.md#show-these-words-during-playback): _Nothing selected_
+- [`Adjust fast-forward speed by comprehension`](./reference/settings.md#adjust-fast-forward-speed-by-comprehension): **Off**
 
 To enable annotation for a track, set at least one of the above settings to a value other than the disabled value. Certain annotations may only show on hover if they are [configured to do so](./reference/settings.md#only-display-word-color-on-hover).
 

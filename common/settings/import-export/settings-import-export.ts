@@ -1,5 +1,6 @@
 import { Validator } from 'jsonschema';
 import type { AsbplayerSettings } from '@project/common/settings/settings';
+import { dictionaryPlaybackFeatures } from '@project/common/settings/settings-dictionary';
 import { ensureConsistencyOnRead } from '@project/common/settings/settings-provider';
 import { download, getCurrentTimeString } from '@project/common/util';
 
@@ -125,6 +126,75 @@ const dictionaryTrackSchema = {
                 },
                 required: ['display', 'color', 'alpha'],
             },
+        },
+        dictionaryPlaybackConfig: {
+            type: 'object',
+            properties: {
+                onStatuses: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: Object.fromEntries(
+                            dictionaryPlaybackFeatures.map((feature) => [feature, { type: 'boolean' }])
+                        ),
+                        required: ['autoPause', 'condensed', 'fastForward', 'repeat', 'wordVisibility'],
+                    },
+                },
+                onStates: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: Object.fromEntries(
+                            dictionaryPlaybackFeatures.map((feature) => [feature, { type: 'boolean' }])
+                        ),
+                        required: ['autoPause', 'condensed', 'fastForward', 'repeat', 'wordVisibility'],
+                    },
+                },
+                rules: {
+                    type: 'object',
+                    properties: Object.fromEntries(
+                        dictionaryPlaybackFeatures.map((feature) => [
+                            feature,
+                            {
+                                type: 'object',
+                                properties: {
+                                    maxWords: { type: 'integer', minimum: 0 },
+                                    maxFrequency: { type: 'integer', minimum: 0, maximum: 100000 },
+                                    ...(feature === 'fastForward'
+                                        ? {
+                                              rateByComprehension: {
+                                                  type: 'object',
+                                                  properties: { enabled: { type: 'boolean' } },
+                                                  required: ['enabled'],
+                                              },
+                                          }
+                                        : {}),
+                                    ...(feature === 'wordVisibility'
+                                        ? {
+                                              hideWordsIndividuallyUntilThreshold: { type: 'boolean' },
+                                              wholeSubtitleMatchThreshold: {
+                                                  type: 'number',
+                                                  minimum: 0.01,
+                                                  maximum: 1,
+                                              },
+                                          }
+                                        : {}),
+                                },
+                                required: [
+                                    'maxWords',
+                                    'maxFrequency',
+                                    ...(feature === 'fastForward' ? ['rateByComprehension'] : []),
+                                    ...(feature === 'wordVisibility'
+                                        ? ['hideWordsIndividuallyUntilThreshold', 'wholeSubtitleMatchThreshold']
+                                        : []),
+                                ],
+                            },
+                        ])
+                    ),
+                    required: ['autoPause', 'condensed', 'fastForward', 'repeat', 'wordVisibility'],
+                },
+            },
+            required: ['onStatuses', 'onStates', 'rules'],
         },
         dictionaryTokenAnnotationConfig: {
             type: 'object',
@@ -508,6 +578,9 @@ const settingsSchema = {
         repeatCountPreference: {
             type: 'number',
         },
+        repeatsBeforeShowingSubtitles: {
+            type: 'integer',
+        },
         autoPauseResumeMode: {
             type: 'string',
             enum: ['manual', 'fixed', 'subtitleLength'],
@@ -529,7 +602,7 @@ const settingsSchema = {
         },
         subtitleVisibility: {
             type: 'string',
-            enum: ['whenDue', 'whilePaused'],
+            enum: ['whenDue', 'whilePaused', 'whileManuallyPaused'],
         },
         rememberPlaybackModes: {
             type: 'boolean',

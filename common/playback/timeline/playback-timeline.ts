@@ -23,6 +23,8 @@ export interface PlaybackTimelineEventGroup {
 export interface PlaybackTimelineRepeatAction {
     /** Zero means repeat indefinitely. */
     readonly count: number;
+    /** Zero shows subtitles on the initial pass. */
+    readonly repeatsBeforeShowingSubtitles: number;
 }
 
 export interface PlaybackTimelineEndAction {
@@ -45,6 +47,8 @@ export interface PlaybackTimelineBlock {
     readonly subtitleTriggerGapStartOffsetMs: number;
     /** Pause when the playback-mode interval starts. */
     readonly startAction?: true;
+    readonly fastForwardPlaybackRate?: number;
+    readonly autoPauseToken?: { readonly subtitleIndex: number; readonly tokenStart: number };
     readonly endAction?: PlaybackTimelineEndAction;
 }
 
@@ -56,6 +60,7 @@ export interface PlaybackTimelineSegment<T extends IndexedSubtitleModel> {
     readonly invisibleSubtitles: readonly T[];
     readonly condensedTarget?: number;
     readonly nextStartActionTimestamp?: number;
+    readonly nextPlaybackActionTimestamp?: number;
 }
 
 export interface PlaybackTimelineState {
@@ -100,6 +105,8 @@ export const advanceTimestampIndex = <T>(
 export default class PlaybackTimeline<T extends IndexedSubtitleModel> {
     readonly durationMs: number;
     readonly blocks: readonly PlaybackTimelineBlock[];
+    readonly actionBlocks: readonly PlaybackTimelineBlock[];
+    private readonly repeatActionBlocks: readonly PlaybackTimelineBlock[];
     private readonly blocksById: ReadonlyMap<string, PlaybackTimelineBlock>;
     readonly actionIndex: PlaybackTimelineActionIndex;
     readonly segments: readonly PlaybackTimelineSegment<T>[];
@@ -110,8 +117,12 @@ export default class PlaybackTimeline<T extends IndexedSubtitleModel> {
     private constructor(compiled: PlaybackTimelineCompilation<T>) {
         this.durationMs = compiled.durationMs;
         this.blocks = compiled.blocks;
+        this.actionBlocks = compiled.actionBlocks;
+        this.repeatActionBlocks = this.actionBlocks
+            .filter((block) => block.endAction?.repeat !== undefined)
+            .sort((left, right) => left.playbackModeStartMs - right.playbackModeStartMs);
         const blocksById = new Map<string, PlaybackTimelineBlock>();
-        for (const block of this.blocks) blocksById.set(block.id, block);
+        for (const block of [...this.blocks, ...this.actionBlocks]) blocksById.set(block.id, block);
         this.blocksById = blocksById;
         this.actionIndex = compiled.actionIndex;
         this.segments = compiled.segments;
@@ -146,6 +157,17 @@ export default class PlaybackTimeline<T extends IndexedSubtitleModel> {
 
     blockById(blockId: string): PlaybackTimelineBlock | undefined {
         return this.blocksById.get(blockId);
+    }
+
+    repeatActionBlockAt(timestampMs: number): PlaybackTimelineBlock | undefined {
+        const index = firstTimestampIndex(
+            this.repeatActionBlocks,
+            timestampMs,
+            (block) => block.playbackModeStartMs,
+            'after'
+        );
+        const block = this.repeatActionBlocks[index - 1];
+        return block !== undefined && timestampMs <= block.playbackModeEndMs ? block : undefined;
     }
 
     private indexAt(timestampMs: number): number {

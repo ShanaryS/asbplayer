@@ -97,7 +97,8 @@ describe('HoveredToken', () => {
         const richText = renderRichTextOntoSubtitles(
             [subtitle],
             'video',
-            makeDictionaryTracks(makeDictionaryTrack({ dictionaryColorizeSubtitles: false }))
+            makeDictionaryTracks(makeDictionaryTrack({ dictionaryColorizeSubtitles: false })),
+            { wordVisibilityEnabled: true }
         ).get(subtitle.index)?.richText;
         const wrapper = document.createElement('div');
         wrapper.dataset.track = '0';

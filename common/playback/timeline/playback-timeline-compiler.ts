@@ -14,6 +14,9 @@ import { clamp, normalizeFinite, normalizeNonNegative, normalizeNonPositive } fr
 export interface PlaybackTimelineSubtitles<T extends IndexedSubtitleModel> {
     readonly durationMs: number;
     readonly blocks: readonly PlaybackTimelineBlock[];
+    /** Playback actions with boundaries independent of the merged state blocks. */
+    readonly actionBlocks?: readonly PlaybackTimelineBlock[];
+    readonly condensedBlocks?: readonly PlaybackTimelineBlock[];
     readonly displaySubtitles: readonly T[];
 }
 
@@ -161,6 +164,7 @@ export const compilePlaybackTimelineSubtitles = <T extends IndexedSubtitleModel>
 export interface PlaybackTimelineCompilation<T extends IndexedSubtitleModel> {
     readonly durationMs: number;
     readonly blocks: readonly PlaybackTimelineBlock[];
+    readonly actionBlocks: readonly PlaybackTimelineBlock[];
     readonly boundaries: readonly PlaybackTimelineEventGroup[];
     readonly actionIndex: PlaybackTimelineActionIndex;
     readonly segments: readonly PlaybackTimelineSegment<T>[];
@@ -247,9 +251,17 @@ const eventsFromBlocks = (blocks: readonly PlaybackTimelineBlock[]): readonly Pl
             block,
         },
     ]);
+    // A pause at a shared end boundary must run before a repeat decides whether to wait for resume.
     events.sort(
         (left, right) =>
-            left.timestampMs - right.timestampMs || (left.edge === right.edge ? 0 : left.edge === 'start' ? -1 : 1)
+            left.timestampMs - right.timestampMs ||
+            (left.edge === right.edge
+                ? left.edge === 'end'
+                    ? Number(right.block.endAction?.pause === true) - Number(left.block.endAction?.pause === true)
+                    : 0
+                : left.edge === 'start'
+                  ? -1
+                  : 1)
     );
     return events;
 };
@@ -282,7 +294,8 @@ const compileSegments = <T extends IndexedSubtitleModel>(
     durationMs: number,
     blocks: readonly PlaybackTimelineBlock[],
     displaySubtitles: readonly T[],
-    events: readonly PlaybackTimelineEvent[]
+    events: readonly PlaybackTimelineEvent[],
+    { condensedGaps }: { readonly condensedGaps: readonly CondensedGap[] }
 ): {
     boundaries: readonly PlaybackTimelineEventGroup[];
     segments: readonly PlaybackTimelineSegment<T>[];
@@ -312,6 +325,10 @@ const compileSegments = <T extends IndexedSubtitleModel>(
     const timestamps = new Set<number>([0, durationMs]);
     for (const edge of displayEdges) timestamps.add(edge.timestampMs);
     for (const event of events) timestamps.add(event.timestampMs);
+    for (const gap of condensedGaps) {
+        timestamps.add(gap.startMs);
+        timestamps.add(gap.targetMs);
+    }
     for (const block of blocks) {
         timestamps.add(block.subtitleTriggerGapEndOffsetMs);
         timestamps.add(block.subtitleTriggerGapStartOffsetMs);
@@ -388,12 +405,29 @@ const compileSegments = <T extends IndexedSubtitleModel>(
 export const compilePlaybackTimeline = <T extends IndexedSubtitleModel>(
     subtitles: PlaybackTimelineSubtitles<T>
 ): PlaybackTimelineCompilation<T> => {
-    const events = eventsFromBlocks(subtitles.blocks);
+    const actionBlocks = subtitles.actionBlocks ?? [];
+    const events = eventsFromBlocks([...subtitles.blocks, ...actionBlocks]);
+    const condensedGaps: CondensedGap[] = [];
+    const condensedBlocks = subtitles.condensedBlocks ?? subtitles.blocks;
+    for (const [index, block] of condensedBlocks.entries()) {
+        const gapStartMs = condensedBlocks[index - 1]?.subtitleTriggerGapStartOffsetMs ?? 0;
+        if (gapStartMs < block.subtitleTriggerGapEndOffsetMs) {
+            condensedGaps.push({ startMs: gapStartMs, targetMs: block.subtitleTriggerGapEndOffsetMs });
+        }
+    }
+
+    if (subtitles.condensedBlocks !== undefined) {
+        const gapStartMs = condensedBlocks.at(-1)?.subtitleTriggerGapStartOffsetMs ?? 0;
+        if (gapStartMs < subtitles.durationMs)
+            condensedGaps.push({ startMs: gapStartMs, targetMs: subtitles.durationMs });
+    }
+
     const compiledSegments = compileSegments(
         subtitles.durationMs,
         subtitles.blocks,
         subtitles.displaySubtitles,
-        events
+        events,
+        { condensedGaps }
     );
     const actionIndex = actionIndexFromBoundaries(compiledSegments.boundaries);
     const stateBoundaryTimestamps = compiledSegments.segments.slice(1).map(({ startMs }) => startMs);
@@ -406,15 +440,8 @@ export const compilePlaybackTimeline = <T extends IndexedSubtitleModel>(
         ),
     ].sort((left, right) => left - right);
 
-    const condensedGaps: CondensedGap[] = [];
-    for (const [index, block] of subtitles.blocks.entries()) {
-        const gapStartMs = subtitles.blocks[index - 1]?.subtitleTriggerGapStartOffsetMs ?? 0;
-        if (gapStartMs < block.subtitleTriggerGapEndOffsetMs) {
-            condensedGaps.push({ startMs: gapStartMs, targetMs: block.subtitleTriggerGapEndOffsetMs });
-        }
-    }
-
     let nextStartActionIndex = 0;
+    let nextPlaybackActionIndex = 0;
     const segments = compiledSegments.segments.map((segment) => {
         nextStartActionIndex = advanceTimestampIndex(
             actionIndex.startActionTimestamps,
@@ -422,22 +449,34 @@ export const compilePlaybackTimeline = <T extends IndexedSubtitleModel>(
             segment.startMs,
             (timestamp) => timestamp
         );
+        if (subtitles.condensedBlocks !== undefined) {
+            nextPlaybackActionIndex = advanceTimestampIndex(
+                actionIndex.actionTimestamps,
+                nextPlaybackActionIndex,
+                segment.startMs,
+                (timestamp) => timestamp
+            );
+        }
         const gapIndex = firstTimestampIndex(condensedGaps, segment.startMs, (gap) => gap.startMs, 'after') - 1;
         const condensedTarget =
             gapIndex >= 0 && segment.startMs < condensedGaps[gapIndex].targetMs
                 ? condensedGaps[gapIndex].targetMs
                 : undefined;
         const nextStartActionTimestamp = actionIndex.startActionTimestamps[nextStartActionIndex];
+        const nextPlaybackActionTimestamp =
+            subtitles.condensedBlocks === undefined ? undefined : actionIndex.actionTimestamps[nextPlaybackActionIndex];
         return {
             ...segment,
             ...(condensedTarget === undefined ? {} : { condensedTarget }),
             ...(nextStartActionTimestamp === undefined ? {} : { nextStartActionTimestamp }),
+            ...(nextPlaybackActionTimestamp === undefined ? {} : { nextPlaybackActionTimestamp }),
         };
     });
 
     const compilation = {
         durationMs: subtitles.durationMs,
         blocks: subtitles.blocks,
+        actionBlocks,
         boundaries: compiledSegments.boundaries,
         actionIndex,
         segments,

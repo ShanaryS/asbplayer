@@ -1,4 +1,6 @@
 import {
+    areDictionaryPlaybackConfigsEqual,
+    dictionaryPlaybackGroupSettingsEnabled,
     autoPausePreferenceForCheckboxChange,
     calculateSeekableTracksValue,
     effectiveSubtitleListCustomization,
@@ -11,6 +13,70 @@ import {
 import type { AutoPausePreferenceEdge } from '.';
 import { describe, expect, it } from '@jest/globals';
 import { AutoPausePreference } from '@project/common/src/model';
+import { defaultSettings } from '@project/common/settings/settings-provider';
+
+it('compares dictionary playback fields by value regardless of object key order', () => {
+    const config = defaultSettings.dictionaryTracks[0].dictionaryPlaybackConfig;
+    const reordered = {
+        rules: {
+            wordVisibility: {
+                wholeSubtitleMatchThreshold: config.rules.wordVisibility.wholeSubtitleMatchThreshold,
+                hideWordsIndividuallyUntilThreshold: config.rules.wordVisibility.hideWordsIndividuallyUntilThreshold,
+                maxFrequency: 0,
+                maxWords: 0,
+            },
+            repeat: { maxFrequency: 0, maxWords: 0 },
+            fastForward: {
+                rateByComprehension: { ...config.rules.fastForward.rateByComprehension },
+                maxFrequency: 0,
+                maxWords: 0,
+            },
+            condensed: { maxFrequency: 0, maxWords: 0 },
+            autoPause: { maxFrequency: 0, maxWords: 0 },
+        },
+        onStates: config.onStates.map((state) => ({
+            wordVisibility: state.wordVisibility,
+            repeat: state.repeat,
+            fastForward: state.fastForward,
+            condensed: state.condensed,
+            autoPause: state.autoPause,
+        })),
+        onStatuses: config.onStatuses.map((status) => ({
+            wordVisibility: status.wordVisibility,
+            repeat: status.repeat,
+            fastForward: status.fastForward,
+            condensed: status.condensed,
+            autoPause: status.autoPause,
+        })),
+    };
+    expect(areDictionaryPlaybackConfigsEqual(config, reordered)).toBe(true);
+    reordered.rules.fastForward.rateByComprehension.enabled = true;
+    expect(areDictionaryPlaybackConfigsEqual(config, reordered)).toBe(false);
+    reordered.rules.fastForward.rateByComprehension.enabled = false;
+    reordered.rules.repeat.maxFrequency = 1;
+    expect(areDictionaryPlaybackConfigsEqual(config, reordered)).toBe(false);
+    reordered.rules.repeat.maxFrequency = 0;
+    reordered.rules.wordVisibility.wholeSubtitleMatchThreshold = 0.5;
+    expect(areDictionaryPlaybackConfigsEqual(config, reordered)).toBe(false);
+    reordered.rules.wordVisibility.wholeSubtitleMatchThreshold = 1;
+    reordered.rules.wordVisibility.hideWordsIndividuallyUntilThreshold = false;
+    expect(areDictionaryPlaybackConfigsEqual(config, reordered)).toBe(false);
+    reordered.rules.wordVisibility.hideWordsIndividuallyUntilThreshold = true;
+    reordered.onStatuses[0].autoPause = true;
+    expect(areDictionaryPlaybackConfigsEqual(config, reordered)).toBe(false);
+});
+
+it('treats the default 100 percent visibility threshold as unconfigured', () => {
+    const defaultConfig = defaultSettings.dictionaryTracks[0].dictionaryPlaybackConfig;
+    const config = {
+        ...defaultConfig,
+        rules: { ...defaultConfig.rules, wordVisibility: { ...defaultConfig.rules.wordVisibility } },
+    };
+    expect(config.rules.wordVisibility.wholeSubtitleMatchThreshold).toBe(1);
+    expect(dictionaryPlaybackGroupSettingsEnabled(config, 'wordVisibility')).toBe(false);
+    config.rules.wordVisibility.wholeSubtitleMatchThreshold = 0.8;
+    expect(dictionaryPlaybackGroupSettingsEnabled(config, 'wordVisibility')).toBe(true);
+});
 
 describe('effectiveSubtitleListCustomization', () => {
     const configured = {
@@ -77,7 +143,7 @@ describe('autoPausePreferenceForCheckboxChange', () => {
             expected: AutoPausePreference.atStartAndEnd,
         },
     ])('maps $preference when edge $edge becomes $checked to $expected', ({ preference, edge, checked, expected }) => {
-        expect(autoPausePreferenceForCheckboxChange(preference, edge, checked)).toBe(expected);
+        expect(autoPausePreferenceForCheckboxChange(preference, edge, { checked })).toBe(expected);
     });
 });
 

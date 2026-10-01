@@ -30,6 +30,7 @@ import {
     allTextSubtitleSettings,
     TokenState,
     ApplyStrategy,
+    SubtitleVisibility,
 } from '@project/common/settings';
 import {
     adjacentSubtitle,
@@ -49,6 +50,7 @@ import {
 import { asbTrace } from '@project/common/util/log';
 import {
     HoveredToken,
+    selectTokenInRoot,
     renderRichTextOntoSubtitles,
     getAnnotationsHtml,
     ASB_SUBTITLE_INDEX_ATTRIBUTE,
@@ -182,7 +184,8 @@ const showingSubtitleHtml = (
     subtitleStyles: string,
     subtitleClasses: string,
     imageBasedSubtitleScaleFactor: number,
-    dictionaryTracks: DictionaryTrack[]
+    dictionaryTracks: DictionaryTrack[],
+    wordVisibilityEnabled: boolean
 ) => {
     if (subtitle.textImage) {
         const imageScale =
@@ -201,7 +204,9 @@ const showingSubtitleHtml = (
 `;
     }
     const allSubtitleClasses = subtitleClasses ? `${subtitleClasses} asbplayer-subtitles` : 'asbplayer-subtitles';
-    const rendered = renderRichTextOntoSubtitles([subtitle], 'video', dictionaryTracks)?.get(subtitle.index);
+    const rendered = renderRichTextOntoSubtitles([subtitle], 'video', dictionaryTracks, {
+        wordVisibilityEnabled,
+    })?.get(subtitle.index);
     return `<span class="${allSubtitleClasses}" style="${subtitleStyles}" data-track="${subtitle.track}" ${ASB_SUBTITLE_INDEX_ATTRIBUTE}="${subtitle.index}">${getAnnotationsHtml(
         subtitle.text,
         rendered?.richText,
@@ -720,6 +725,8 @@ export default function VideoPlayer({
                 }
             ),
             callbacks: {
+                selectToken: (target) =>
+                    selectTokenInRoot(containerRef.current ?? document, target, { scrollIntoView: false }),
                 pause: () => {
                     video.pause();
                     clock.stop();
@@ -738,6 +745,7 @@ export default function VideoPlayer({
                 setSubtitleOffset: (offset, options, notificationKey) =>
                     updateSubtitlesWithOffset(offset, options.notifyPlayer, notificationKey),
                 playbackStateChanged: (state) => {
+                    containerRef.current?.classList.toggle('asb-playback-paused', state.paused);
                     playbackStateChangedRef.current(state);
                     playerChannel.playbackState(state);
                 },
@@ -2007,9 +2015,15 @@ export default function VideoPlayer({
                 trackStyles[subtitle.track]?.styleString ?? trackStyles[0]?.styleString ?? '',
                 trackStyles[subtitle.track]?.classes ?? trackStyles[0]?.classes ?? '',
                 subtitleSettings.imageBasedSubtitleScaleFactor,
-                renderDictionaryTracks
+                renderDictionaryTracks,
+                settings.subtitleVisibility === SubtitleVisibility.whenDue
             ),
-        [trackStyles, renderDictionaryTracks, subtitleSettings.imageBasedSubtitleScaleFactor]
+        [
+            trackStyles,
+            renderDictionaryTracks,
+            subtitleSettings.imageBasedSubtitleScaleFactor,
+            settings.subtitleVisibility,
+        ]
     );
 
     const { getSubtitleDomCache, updateSubtitleDomCache } = useSubtitleDomCache(subtitles, getSubtitleHtml);

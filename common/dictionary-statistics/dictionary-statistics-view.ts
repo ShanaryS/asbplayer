@@ -1,4 +1,4 @@
-import type { Progress } from '@project/common';
+import type { IndexedSubtitleModel, Progress } from '@project/common';
 import {
     getFullyKnownTokenStatus,
     isTokenStatusKnown,
@@ -30,8 +30,8 @@ import {
  */
 
 const dictionaryStatisticsFrequencyBuckets = [1000, 2000, 5000, 10000, 20000] as const;
-const minimumComprehensionStatus = TokenStatus.UNKNOWN;
 const fullyKnownTokenStatus = getFullyKnownTokenStatus();
+const minimumComprehensionStatus = TokenStatus.UNKNOWN;
 const comprehensionStatusRange = fullyKnownTokenStatus - minimumComprehensionStatus;
 
 export type DictionaryComprehensionBand = {
@@ -401,21 +401,44 @@ function averageFromTotals(total: number, count: number) {
     return count > 0 ? total / count : 0;
 }
 
-function comprehensionScore(status: TokenStatus): number {
-    return (Math.max(status, minimumComprehensionStatus) - minimumComprehensionStatus) / comprehensionStatusRange;
+/** The status-weighted score used for sentence comprehension in dictionary statistics. */
+export function comprehensionPercentFromStatusOccurrences(
+    occurrencesForStatus: (status: TokenStatus) => number
+): number {
+    let totalOccurrences = 0;
+    let comprehensionSum = 0;
+    for (let status: TokenStatus = 0; status < NUM_TOKEN_STATUSES; ++status) {
+        const occurrences = occurrencesForStatus(status);
+        totalOccurrences += occurrences;
+        const score =
+            (Math.max(status, minimumComprehensionStatus) - minimumComprehensionStatus) / comprehensionStatusRange;
+        comprehensionSum += occurrences * score;
+    }
+    return totalOccurrences > 0 ? (comprehensionSum / totalOccurrences) * 100 : 100;
+}
+
+/** Mirrors statistics' lemma grouping, status merging, and ignored-token exclusion for one sentence. */
+export function sentenceComprehensionPercent(sentence: Pick<IndexedSubtitleModel, 'text' | 'tokenization'>): number {
+    const grouped = new Map<string, { status: TokenStatus; ignored: boolean; occurrences: number }>();
+    for (const token of sentence.tokenization?.tokens ?? []) {
+        const key = token.lemmasGroupingKey ?? token.groupingKey;
+        if (!key || !HAS_LETTER_REGEX.test(sentence.text.slice(...token.pos))) continue;
+        const previous = grouped.get(key);
+        grouped.set(key, {
+            status: Math.max(previous?.status ?? TokenStatus.UNCOLLECTED, token.status ?? TokenStatus.UNCOLLECTED),
+            ignored: (previous?.ignored ?? true) && token.states.includes(TokenState.IGNORED),
+            occurrences: (previous?.occurrences ?? 0) + 1,
+        });
+    }
+    const counts = new Map<TokenStatus, number>();
+    for (const { status, ignored, occurrences } of grouped.values()) {
+        if (!ignored) counts.set(status, (counts.get(status) ?? 0) + occurrences);
+    }
+    return comprehensionPercentFromStatusOccurrences((status) => counts.get(status) ?? 0);
 }
 
 function comprehensionFromStatusOccurrences(statusCounts: DictionaryStatisticsTokenStatusCounts): number {
-    let totalOccurrences = 0;
-    let comprehensionSum = 0;
-
-    for (let status: TokenStatus = 0; status < NUM_TOKEN_STATUSES; ++status) {
-        const numOccurrences = statusCounts.get(status)?.numOccurrences ?? 0;
-        totalOccurrences += numOccurrences;
-        comprehensionSum += numOccurrences * comprehensionScore(status);
-    }
-
-    return totalOccurrences > 0 ? (comprehensionSum / totalOccurrences) * 100 : 0;
+    return comprehensionPercentFromStatusOccurrences((status) => statusCounts.get(status)?.numOccurrences ?? 0);
 }
 
 function comprehensionBandIndexForPercent(value: number): number {

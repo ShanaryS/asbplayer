@@ -213,6 +213,7 @@
         "deleteAll": "全てを削除"
     },
     "error": {
+        "ffmpegUpdateRequired": "FFmpeg is no longer available for this app version. Update the app to continue.",
         "bothAudioAndVideNotAllowed": "音声と動画ファイルを同時にロードできません",
         "failedToLoadDirectory": "ディレクトリのロードに失敗しました",
         "lostTabConnection": "タブ「{{tabName}}」への接続が失われました",
@@ -317,6 +318,8 @@
         "alert": "asbplayer が新しいバージョン{{version}}にアップデートされました。リリースノートは<0>こちら</0>をご参照ください。"
     },
     "info": {
+        "downloading": "Downloading",
+        "verifying": "Verifying",
         "copiedSubtitle": "コピーしました：{{text}}",
         "copiedSubtitle2": "コピーしました：{{result}}",
         "disabledAutoPause": "自動一時停止：オフ",
@@ -805,7 +808,7 @@
     },
     "app": {
         "pwaUpdatePromptTitle": "アプリ更新",
-        "pwaUpdatePromptBody": "「OK」をクリックすると更新が完了します。"
+        "pwaUpdatePromptBody": "Click \"OK\" to complete update."
     },
     "onlineSubtitleSources": {
         "searchOnlineSubtitles": "ネット上の字幕ファイルを検索",

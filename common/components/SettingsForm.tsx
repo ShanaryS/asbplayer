@@ -13,6 +13,7 @@ import Tabs from '@mui/material/Tabs';
 import type { Anki } from '@project/common/anki';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import About from '@project/common/components/About';
+import type { AboutDependency } from '@project/common/components/About';
 import { TutorialStep } from '@project/common/components/settings-model';
 import AnkiSettingsTab from '@project/common/components/AnkiSettingsTab';
 import MiningSettingsTab from '@project/common/components/MiningSettingsTab';
@@ -201,6 +202,7 @@ interface Props {
     extensionSupportsSubtitleListCustomization: boolean;
     insideApp?: boolean;
     appVersionRepoPath?: string;
+    aboutAdditionalDependencies?: AboutDependency[];
     dictionaryProvider: DictionaryProvider;
     logProvider: LogProvider;
     settings: AsbplayerSettings;
@@ -259,6 +261,7 @@ export default function SettingsForm({
     extensionSupportsDictionaryPlayback,
     insideApp,
     appVersionRepoPath,
+    aboutAdditionalDependencies,
     scrollToId,
     chromeKeyBinds,
     localFontsAvailable,
@@ -646,6 +649,7 @@ export default function SettingsForm({
                     <About
                         appVersionRepoPath={insideApp ? appVersionRepoPath : undefined}
                         extensionVersion={extensionInstalled ? extensionVersion : undefined}
+                        additionalDependencies={aboutAdditionalDependencies}
                     />
                 </TabPanel>
             </div>

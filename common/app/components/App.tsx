@@ -80,6 +80,8 @@ import CssBaseline from '@mui/material/CssBaseline';
 import { StyledEngineProvider } from '@mui/material/styles';
 import { useServiceWorker } from '@project/common/app/hooks/use-service-worker';
 import NeedRefreshDialog from '@project/common/app/components/NeedRefreshDialog';
+import FfmpegDownloadProgress from '@project/common/app/components/FfmpegDownloadProgress';
+import Snackbar from '@mui/material/Snackbar';
 import type { DictionaryProvider } from '@project/common/dictionary-db';
 import type { LogProvider } from '@project/common/util/log';
 import { isFirefox } from '@project/common/browser-detection';
@@ -1710,9 +1712,10 @@ function App({
     const handleOpenNeedRefreshDialog = useCallback(() => setNeedRefreshDialogOpen(true), []);
     const handleCloseNeedRefreshDialog = useCallback(() => setNeedRefreshDialogOpen(false), []);
     const handleOfflineReady = useCallback(() => {}, []);
-    const { doUpdate: updateFromServiceWorker } = useServiceWorker({
+    const { doUpdate: updateFromServiceWorker, ffmpegDownloadProgress } = useServiceWorker({
         onNeedRefresh: handleOpenNeedRefreshDialog,
         onOfflineReady: handleOfflineReady,
+        onFfmpegUpdateError: handleError,
     });
     const handleCloseStatistics = useCallback(() => setStatisticsOpen(false), []);
     const handleViewAnnotationSettings = useCallback(() => {
@@ -1972,7 +1975,15 @@ function App({
                                 open={needRefreshDialogOpen}
                                 onRefresh={updateFromServiceWorker}
                                 onClose={handleCloseNeedRefreshDialog}
+                                ffmpegDownloadProgress={ffmpegDownloadProgress}
                             />
+                            <Snackbar open={!needRefreshDialogOpen && ffmpegDownloadProgress !== undefined}>
+                                <Paper sx={{ p: 2 }}>
+                                    {ffmpegDownloadProgress && (
+                                        <FfmpegDownloadProgress progress={ffmpegDownloadProgress} />
+                                    )}
+                                </Paper>
+                            </Snackbar>
                             <Bar
                                 title={fileName || 'asbplayer'}
                                 drawerWidth={drawerWidth}

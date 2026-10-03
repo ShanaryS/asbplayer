@@ -213,6 +213,7 @@
         "deleteAll": "Limpar"
     },
     "error": {
+        "ffmpegUpdateRequired": "FFmpeg is no longer available for this app version. Update the app to continue.",
         "bothAudioAndVideNotAllowed": "Não é possível carregar simultaneamente um arquivo de áudio e um arquivo de vídeo",
         "failedToLoadDirectory": "Falha ao carregar diretório",
         "lostTabConnection": "Perda de conexão com a guia: {{tabName}}",
@@ -317,6 +318,8 @@
         "alert": "asbplayer foi atualizado para a versão {{version}}. Confira as <0>notas da versão</0>."
     },
     "info": {
+        "downloading": "Downloading",
+        "verifying": "Verifying",
         "copiedSubtitle": "Copiado: {{text}}",
         "copiedSubtitle2": "Copiado: {{result}}",
         "disabledAutoPause": "Pausa automática: Off",
@@ -805,7 +808,7 @@
     },
     "app": {
         "pwaUpdatePromptTitle": "Atualização do aplicativo",
-        "pwaUpdatePromptBody": "Clique em \"OK\" para concluir a atualização."
+        "pwaUpdatePromptBody": "Click \"OK\" to complete update."
     },
     "onlineSubtitleSources": {
         "searchOnlineSubtitles": "Search online subtitles",

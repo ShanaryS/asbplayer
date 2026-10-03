@@ -213,6 +213,7 @@
         "deleteAll": "Tyhjennä"
     },
     "error": {
+        "ffmpegUpdateRequired": "FFmpeg is no longer available for this app version. Update the app to continue.",
         "bothAudioAndVideNotAllowed": "Ääni- ja videotiedostoa ei voi ladata samanaikaisesti",
         "failedToLoadDirectory": "Kansion lataaminen epäonnistui",
         "lostTabConnection": "Yhteys välilehteen on menetetty: {{tabName}}",
@@ -317,6 +318,8 @@
         "alert": "asbplayer päivitetty versioon {{version}}. Tutustu <0>release notes</0>."
     },
     "info": {
+        "downloading": "Downloading",
+        "verifying": "Verifying",
         "copiedSubtitle": "Kopioitu: {{text}}",
         "copiedSubtitle2": "Kopioitu: {{result}}",
         "disabledAutoPause": "Automaattinen pysäytys: Pois Käytöstä",
@@ -805,7 +808,7 @@
     },
     "app": {
         "pwaUpdatePromptTitle": "Sovelluspäivitys",
-        "pwaUpdatePromptBody": "Napsauta \"OK\" suorittaaksesi päivityksen."
+        "pwaUpdatePromptBody": "Click \"OK\" to complete update."
     },
     "onlineSubtitleSources": {
         "searchOnlineSubtitles": "Search online subtitles",

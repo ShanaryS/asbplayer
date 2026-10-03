@@ -213,6 +213,7 @@
         "deleteAll": "Очистить"
     },
     "error": {
+        "ffmpegUpdateRequired": "FFmpeg is no longer available for this app version. Update the app to continue.",
         "bothAudioAndVideNotAllowed": "Невозможно одновременно загрузить аудиофайл и видеофайл",
         "failedToLoadDirectory": "Не удалось загрузить директорию",
         "lostTabConnection": "Потеря соединения с вкладкой: {{tabName}}",
@@ -317,6 +318,8 @@
         "alert": "asbplayer обновился до версии {{version}}. Посмотрите <0>примечания к выпуску</0>."
     },
     "info": {
+        "downloading": "Downloading",
+        "verifying": "Verifying",
         "copiedSubtitle": "Скопировано: {{text}}",
         "copiedSubtitle2": "Скопировано: {{result}}",
         "disabledAutoPause": "Автоматическая пауза: Выкл",
@@ -805,7 +808,7 @@
     },
     "app": {
         "pwaUpdatePromptTitle": "Обновление плеера",
-        "pwaUpdatePromptBody": "Нажмите \"OK\", чтобы завершить обновление."
+        "pwaUpdatePromptBody": "Click \"OK\" to complete update."
     },
     "onlineSubtitleSources": {
         "searchOnlineSubtitles": "Search online subtitles",

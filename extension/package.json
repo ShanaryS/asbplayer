@@ -13,7 +13,7 @@
         "build:firefox": "wxt build -b firefox",
         "build:firefox-android": "wxt build -b firefox-android --mv2",
         "zip": "pnpm check && wxt zip",
-        "zip:firefox": "pnpm check && wxt zip -b firefox",
+        "zip:firefox": "pnpm check && wxt zip -b firefox --sources",
         "zip:firefox-android": "pnpm check && wxt zip -b firefox-android --mv2 --sources",
         "compile": "tsc --noEmit",
         "postinstall": "wxt prepare",

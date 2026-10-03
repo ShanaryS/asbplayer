@@ -213,6 +213,7 @@
         "deleteAll": "清空记录"
     },
     "error": {
+        "ffmpegUpdateRequired": "FFmpeg is no longer available for this app version. Update the app to continue.",
         "bothAudioAndVideNotAllowed": "无法同时加载音频与视频文件",
         "failedToLoadDirectory": "加载目录失败",
         "lostTabConnection": "与标签页失去连接：{{tabName}}",
@@ -317,6 +318,8 @@
         "alert": "应用已更新至 {{version}} 版本，请查看 <0>更新日志</0>。"
     },
     "info": {
+        "downloading": "Downloading",
+        "verifying": "Verifying",
         "copiedSubtitle": "已复制：{{text}}",
         "copiedSubtitle2": "已复制：{{result}}",
         "disabledAutoPause": "自动暂停：已禁用",
@@ -805,7 +808,7 @@
     },
     "app": {
         "pwaUpdatePromptTitle": "应用版本更新",
-        "pwaUpdatePromptBody": "点击“确定”以完成更新。"
+        "pwaUpdatePromptBody": "Click \"OK\" to complete update."
     },
     "onlineSubtitleSources": {
         "searchOnlineSubtitles": "Search online subtitles",

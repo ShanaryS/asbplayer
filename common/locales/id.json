@@ -213,6 +213,7 @@
         "deleteAll": "Hapus Semua"
     },
     "error": {
+        "ffmpegUpdateRequired": "FFmpeg is no longer available for this app version. Update the app to continue.",
         "bothAudioAndVideNotAllowed": "Tidak dapat memuat berkas audio dan video secara bersamaan",
         "failedToLoadDirectory": "Gagal memuat direktori",
         "lostTabConnection": "Koneksi terputus dengan tab: {{tabName}}",
@@ -317,6 +318,8 @@
         "alert": "asbplayer telah diperbarui ke versi {{version}}. Lihat <0>catatan rilis</0>."
     },
     "info": {
+        "downloading": "Downloading",
+        "verifying": "Verifying",
         "copiedSubtitle": "Disalin: {{text}}",
         "copiedSubtitle2": "Disalin: {{result}}",
         "disabledAutoPause": "Jeda otomatis: Nonaktif",
@@ -805,7 +808,7 @@
     },
     "app": {
         "pwaUpdatePromptTitle": "Pembaruan aplikasi",
-        "pwaUpdatePromptBody": "Klik \"OK\" untuk menyelesaikan pembaruan."
+        "pwaUpdatePromptBody": "Click \"OK\" to complete update."
     },
     "onlineSubtitleSources": {
         "searchOnlineSubtitles": "Search online subtitles",

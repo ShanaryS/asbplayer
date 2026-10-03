@@ -65,6 +65,8 @@ pnpm --filter @project/extension dev:firefox-android
 ./scripts/push-firefox-android
 ```
 
+The website's development server and builds automatically fetch and verify the selected FFmpeg runtime, reusing verified local artifacts. Ordinary app and extension development does not need Docker or an FFmpeg build. See the repository's [FFmpeg README](https://github.com/asbplayer/asbplayer/blob/main/ffmpeg/README.md) for FFmpeg build, verification, and release instructions.
+
 If you have problems building try deleting `node_modules` and re-running `pnpm i`.
 
 ## Localization

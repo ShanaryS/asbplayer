@@ -213,6 +213,7 @@
         "deleteAll": "Clear"
     },
     "error": {
+        "ffmpegUpdateRequired": "FFmpeg is no longer available for this app version. Update the app to continue.",
         "bothAudioAndVideNotAllowed": "Cannot load both an audio and video file simultaneously",
         "failedToLoadDirectory": "Failed to load directory",
         "lostTabConnection": "Lost connection with tab: {{tabName}}",
@@ -317,6 +318,8 @@
         "alert": "asbplayer updated to version {{version}}. Check out the <0>release notes</0>."
     },
     "info": {
+        "downloading": "Downloading",
+        "verifying": "Verifying",
         "copiedSubtitle": "Copied: {{text}}",
         "copiedSubtitle2": "Copied: {{result}}",
         "disabledAutoPause": "Auto-pause: Off",

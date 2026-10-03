@@ -83,6 +83,24 @@ const hasCompleteRuntime = async (
     );
 };
 
+/** Check installation without fetching assets or starting a worker. */
+export const hasCachedFfmpegRuntime = async (
+    assets: FfmpegAssetUrls,
+    cacheStorage: CacheStorage | undefined,
+    expectedHashes: Record<string, string> = runtimeHashes
+) => {
+    if (cacheStorage === undefined) return false;
+    try {
+        return await hasCompleteRuntime(cacheStorage, assets.workerURL, expectedHashes);
+    } catch (error) {
+        asbWarn('ffmpeg/cache', 'Could not check whether the runtime is installed', {
+            workerUrl: assets.workerURL,
+            error,
+        });
+        return false;
+    }
+};
+
 export const deleteOutdatedFfmpegCaches = async (
     cacheStorage: CacheStorage,
     assets: FfmpegAssetUrls,

@@ -1,4 +1,5 @@
 import { asbError, asbWarn } from '@project/common/util/log';
+import type { AudioTranscodeHost } from '@project/common/audio-transcode';
 import { humanReadableTime, download, extractText, timeDurationDisplay } from '@project/common/util';
 import type { ComponentProps } from 'react';
 import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
@@ -222,6 +223,7 @@ interface RenderVideoProps {
     onAnkiDialogRequest: (
         videoFileUrl: string,
         videoFileName: string,
+        transcodedAudioFileUrl: string | undefined,
         selectedAudioTrack: string | undefined,
         playbackRate: number,
         subtitle: SubtitleModel,
@@ -335,6 +337,7 @@ interface Props {
     extension: ChromeExtension;
     fetcher: Fetcher;
     onSettingsChanged: (settings: Partial<AsbplayerSettings>) => void;
+    audioTranscodeHost?: AudioTranscodeHost;
     profile?: string;
     profiles: Profile[];
     activeProfile?: string;
@@ -354,6 +357,7 @@ function App({
     globalState,
     extension,
     fetcher,
+    audioTranscodeHost,
     onSettingsChanged,
     profile,
     onGlobalStateChanged,
@@ -511,6 +515,7 @@ function App({
         async (
             videoFileUrl: string,
             videoFileName: string,
+            transcodedAudioFileUrl: string | undefined,
             audioTrack: string | undefined,
             playbackRate: number,
             subtitle: SubtitleModel,
@@ -531,6 +536,8 @@ function App({
                     blobUrl: videoFileUrl,
                     audioTrack,
                     playbackRate,
+                    // Set only when this browser can't decode the file's own audio track
+                    transcodedAudioBlobUrl: transcodedAudioFileUrl,
                 },
             };
             handleAnkiDialogRequest(item);
@@ -2040,6 +2047,7 @@ function App({
                                     />
                                 </Paper>
                                 <Player
+                                    audioTranscodeHost={audioTranscodeHost}
                                     ref={playerRef}
                                     origin={origin}
                                     subtitleReader={subtitleReader}

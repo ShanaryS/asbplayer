@@ -6,6 +6,8 @@
 !.cache/build/
 !.cache/build/ffmpeg-configure-args
 !.cache/build/asb-build-config.hpp
+!.cache/build/native-wasm-test/
+!.cache/build/native-wasm-test/**
 !.cache/build/docker-build-args
 !.cache/build/platform
 !native/

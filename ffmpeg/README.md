@@ -1,6 +1,8 @@
 # asbplayer FFmpeg runtime
 
-This workspace builds an optional, independently versioned FFmpeg dependency for the webapp/PWA. It currently exposes runtime inspection and links only `libavutil`. Media features should add the FFmpeg components, typed worker operations, native IO, and real-WASM tests they need.
+This workspace builds an optional, independently versioned FFmpeg dependency for the webapp/PWA.
+
+The runtime intentionally contains only the media processing needed by asbplayer. It links FFmpeg's `libavutil`, `libavcodec`, `libavformat`, and `libswresample`, with AC-3, E-AC-3, DTS, TrueHD, and MLP decoders plus an AAC encoder. It has no filters, network protocols, devices, or arbitrary command interface. The typed worker API exposes runtime inspection and audio transcoding to an MP4/AAC output.
 
 ## Ordinary app development
 
@@ -39,13 +41,18 @@ Candidate client startup/builds verify the local candidate instead of fetching a
 
 Run commands from the repository root:
 
-| Command                                            | Checks                                                                                                                                                 |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `pnpm run verify`                                  | App checks and FFmpeg tests, TypeScript, lint, and formatting; no Docker                                                                               |
-| `pnpm --filter @project/ffmpeg run verify:code`    | FFmpeg tests, TypeScript, lint, and formatting                                                                                                         |
-| `pnpm --filter @project/ffmpeg run verify:release` | Code checks, candidate/source verification, native/WASM tests, and a clean rebuild from the corresponding source with byte-for-byte release comparison |
+| Command                                              | Checks                                                                                                                             |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm run verify`                                    | App checks and FFmpeg tests, TypeScript, lint, and formatting; no Docker                                                           |
+| `pnpm --filter @project/ffmpeg run verify:code`      | FFmpeg tests, TypeScript, lint, and formatting                                                                                     |
+| `pnpm --filter @project/ffmpeg run test:native-wasm` | Native C++ tests and real-WASM runtime/export checks through Docker                                                                |
+| `pnpm --filter @project/ffmpeg run verify:release`   | Code checks, candidate/source verification, native/WASM and media tests, and a clean rebuild with byte-for-byte release comparison |
 
-The FFmpeg package's `build:candidate` command validates the generated candidate. For native C++ tests and a real-WASM smoke test, run `pnpm run test:native-wasm` from `ffmpeg/`. The full release check requires a candidate to exist and is separate so normal development does not repeat the clean reproduction build.
+The FFmpeg package's `build:candidate` command validates the generated candidate. Before releasing, run `pnpm --filter @project/ffmpeg run verify:release`. It requires a built candidate, Docker, and a host FFmpeg installation. Every check must pass, including media conversion, for this command to succeed.
+
+The release command includes media conversion checks for every supported decoder, stereo downmix, resampling, audio offsets and gaps, large-file reads, and recovery after errors. To run these independently, run `pnpm run test:media` from the `ffmpeg/` directory. The check clears stale fixtures, generates fresh inputs under the ignored `ffmpeg/.cache/` directory, and removes them after success or failure. Encoded outputs stay in memory.
+
+Generated container metadata varies between runs and host FFmpeg versions, so these media checks run during explicit release verification or through the standalone command. Generated media stays out of Git and the corresponding-source archive. The UI tests construct the small codec headers they need in memory.
 
 Pull-request CI checks the host code and runs native tests when native build inputs change. The manual **Release FFmpeg** workflow runs the full release check before publishing.
 
@@ -89,7 +96,9 @@ The owner's signal or `dispose()` stops shared downloads and terminates the work
 
 `onDownloadProgress` reports uncompressed downloaded/total bytes, average speed, ETA, and downloading/verifying/complete stages. Reused cache bytes count toward completion but not speed. `common/app/components/FfmpegDownloadProgress.tsx` renders these metrics. Media-processing progress belongs to the feature introducing that operation.
 
-`createInputReader(fileOrBlob)` provides synchronous worker-side random access through bounded slices, with a 64 KiB default maximum per read. It preserves safe integer offsets above 4 GiB, clips reads at EOF, and rejects invalid ranges without copying the entire file into WASM. Native IO adapters, codecs, and job queues belong to future features that need them.
+`transcodeAudio({ input: fileOrBlob, trackIndex })` clones the File/Blob into the worker without reading the entire file into an ArrayBuffer. Native AVIO callbacks use `createInputReader` for synchronous random access through bounded slices, with a 64 KiB default maximum per read. It preserves safe integer offsets above 4 GiB, clips reads at EOF, and rejects invalid ranges. The native converter downmixes to stereo AAC, preserves audio offsets and gaps relative to the media timeline, and returns MP4 bytes. The encoded output remains in memory and is subject to the runtime's memory limit.
+
+The web host supplies the shared UI with `webAudioTranscodeHost`. Eligibility checks use online status or a complete verified cache without loading FFmpeg. Accepting conversion creates a fresh owner-bound web session; cancellation, file changes, completion, and failure dispose it. Downloads use the shared progress component; conversion shows an indeterminate progress bar.
 
 ## Offline use and app updates
 

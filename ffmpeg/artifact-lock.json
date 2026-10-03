@@ -6,17 +6,17 @@
     "releaseBaseDownloadUrl": "https://github.com/asbplayer/asbplayer/releases/download/ffmpeg-v0.0.0",
     "runtimeArchive": {
         "filename": "asbplayer-ffmpeg-0.0.0-runtime.tar.gz",
-        "sha256": "87a12642f1f75b9d8962212e45dc696115b09832b178e39450b5cc7b34f4d0cf"
+        "sha256": "e6f4fa89bf15b3d7f6872e827eb110ecdb7a113a4a88052c4724229b8b0edc8d"
     },
     "sourceArchive": {
         "filename": "asbplayer-ffmpeg-0.0.0-source.tar.xz",
-        "sha256": "18132c6cbb2cf9ec767a47ab0e7094611c704a42c232766e7706011f958ca0ac"
+        "sha256": "027d0a15bb18aa3908e5524b82411199f9c293ed16f6c1bae14efb1d092ab6d2"
     },
-    "manifestSha256": "6f5ec1e0b59c96c0993d722b5300d469152b200160598c4fc73aa3448bc35fab",
+    "manifestSha256": "2bd5d5afa964b68a9a745d93a6249447c673349b98bc5f70ad53bb8622d38975",
     "runtimeFiles": {
-        "ffmpeg-core.js": "2f3912712de9f066adb464b7e8210ecf8f8115b66fa3e227dad87e0c6be5e70f",
-        "ffmpeg-core.wasm": "9e08fd5b42673e40b1251bed8549cc578dd9e25e9f1e3f3abbc299dd9fa5c18b",
-        "ffmpeg-worker.js": "1911bf174fe5a02edc16c76bdcd10046db91b0d304d9103c0dfa03cd90de0dfd",
+        "ffmpeg-core.js": "1db960aa587e611283337bf600f05f667ff8e4e793806b0e358c6229d4e0b121",
+        "ffmpeg-core.wasm": "a7d3db4cbbfc4ffd743072148853f0b6ab8a2425cbc22448dd7255072f724a20",
+        "ffmpeg-worker.js": "ccf7cbc7735705a8d84a2990877356256cde1b8284123e384e2f6e2d2385de33",
         "notices/Emscripten-MIT.txt": "620a78084fc7ca97c0b5dea9abf891f3ffcadfdbf305276f099c9c4e12fc1d86",
         "notices/FFmpeg-LGPL-2.1.txt": "246041b6ecf9bc32d718a62c57877c78b5eb397b6467e74ed7ae2626ab189c30",
         "notices/asbplayer-AGPL-3.0-or-later.txt": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef",
@@ -24,6 +24,6 @@
         "notices/libcxx-Apache-2.0.txt": "539dd7aed86e8a4f12cbdd0e6c50c189c7d74847e4fecc64ce2c6ee3a01da38b",
         "notices/libcxxabi-LICENSE.txt": "e2b35be49f7284a45b7baca8fc7b3ab7440e7902392b2528a457816b5bb2a15c",
         "notices/musl-COPYRIGHT.txt": "b870108ec5e7790e9f9919064f1b9421d62d5f9b0e6c230c6adf7ea2da62e97b",
-        "manifest.json": "6f5ec1e0b59c96c0993d722b5300d469152b200160598c4fc73aa3448bc35fab"
+        "manifest.json": "2bd5d5afa964b68a9a745d93a6249447c673349b98bc5f70ad53bb8622d38975"
     }
 }

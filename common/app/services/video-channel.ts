@@ -7,6 +7,7 @@ import type {
     AudioTrackModel,
     AudioTrackSelectedFromVideoMessage,
     AudioTrackSelectedToVideoMessage,
+    TranscodedAudioToVideoMessage,
     CardTextFieldValues,
     CopyMessage,
     CopyToVideoMessage,
@@ -530,6 +531,11 @@ export default class VideoChannel {
 
     audioTrackSelected(id: string) {
         const message: AudioTrackSelectedToVideoMessage = { command: 'audioTrackSelected', id: id };
+        this.protocol.postMessage(message);
+    }
+
+    transcodedAudio(audioFileUrl: string | undefined) {
+        const message: TranscodedAudioToVideoMessage = { command: 'transcodedAudio', audioFileUrl };
         this.protocol.postMessage(message);
     }
 

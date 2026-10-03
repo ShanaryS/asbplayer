@@ -31,6 +31,7 @@ ffmpeg.scripts = {
     'package:candidate': ffmpeg.scripts['package:candidate'],
     'verify:candidate': ffmpeg.scripts['verify:candidate'],
     'test:native-wasm': ffmpeg.scripts['test:native-wasm'],
+    'test:media': ffmpeg.scripts['test:media'],
 };
 ffmpeg.devDependencies = { esbuild: ffmpeg.devDependencies.esbuild };
 await writeFile(ffmpegPath, `${JSON.stringify(ffmpeg, null, 4)}\n`);

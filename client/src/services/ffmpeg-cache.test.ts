@@ -10,6 +10,7 @@ import {
     ffmpegRuntimeCacheName,
     FfmpegUpdateRequiredError,
     prepareFfmpegUpdate,
+    hasCachedFfmpegRuntime,
 } from '@project/client/src/services/ffmpeg-cache';
 
 const assets = (version: string): FfmpegAssetUrls => ({
@@ -90,6 +91,31 @@ it('caches the whole runtime on first use and reuses it offline', async () => {
     const urls = assets('0.1.0');
     await prepare(urls, storage, signal(), online);
     await expectRuntime(await prepare(urls, storage, signal(), offline), urls);
+});
+
+it('checks a verified installation without loading it, including after an offline restart', async () => {
+    const storage = memoryCaches();
+    const urls = assets('0.1.0');
+    expect(await hasCachedFfmpegRuntime(urls, storage, hashes(urls))).toBe(false);
+    expect(await storage.keys()).toEqual([]);
+    await prepare(urls, storage, signal(), online);
+    expect(await hasCachedFfmpegRuntime(urls, storage, hashes(urls))).toBe(true);
+    await expectRuntime(await prepare(urls, storage, signal(), offline), urls);
+    expect(await hasCachedFfmpegRuntime(assets('0.2.0'), storage, hashes(assets('0.2.0')))).toBe(false);
+    expect(await hasCachedFfmpegRuntime(urls, storage, { ...hashes(urls), 'ffmpeg-core.wasm': 'wrong' })).toBe(false);
+    const cache = await storage.open(ffmpegRuntimeCacheName(urls.workerURL));
+    await cache.delete(urls.wasmURL);
+    expect(await hasCachedFfmpegRuntime(urls, storage, hashes(urls))).toBe(false);
+});
+
+it('reports unavailable installation when persistent storage cannot be accessed', async () => {
+    expect(await hasCachedFfmpegRuntime(assets('0.1.0'), undefined)).toBe(false);
+    const brokenStorage = {
+        has: async () => {
+            throw new Error('Storage is disabled');
+        },
+    } as unknown as CacheStorage;
+    expect(await hasCachedFfmpegRuntime(assets('0.1.0'), brokenStorage)).toBe(false);
 });
 
 it('isolates runtime versions while an update is still waiting', async () => {

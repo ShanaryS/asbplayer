@@ -1,6 +1,7 @@
-import { createFfmpegObjectUrls, createFfmpegSession } from '@project/ffmpeg';
+import { createFfmpegObjectUrls, createFfmpegSession, ffmpegAssetUrls } from '@project/ffmpeg';
 import type { FfmpegDownloadProgress } from '@project/ffmpeg';
-import { prepareFfmpegRuntime } from '@project/client/src/services/ffmpeg-cache';
+import type { AudioTranscodeHost } from '@project/common/audio-transcode';
+import { hasCachedFfmpegRuntime, prepareFfmpegRuntime } from '@project/client/src/services/ffmpeg-cache';
 import { asbError, asbTrace } from '@project/common/util/log';
 
 const assetBaseUrl = () => {
@@ -55,4 +56,19 @@ export const createWebFfmpegSession = ({
             return createFfmpegObjectUrls({ worker, core, wasm });
         },
     });
+};
+
+export const webAudioTranscodeHost: AudioTranscodeHost = {
+    isAvailable: async () => {
+        const online = navigator.onLine;
+        const available =
+            online ||
+            (await hasCachedFfmpegRuntime(
+                ffmpegAssetUrls(assetBaseUrl()),
+                typeof caches === 'undefined' ? undefined : caches
+            ));
+        asbTrace('audio/transcode', 'Checked decoder availability', { online, available });
+        return available;
+    },
+    createSession: createWebFfmpegSession,
 };

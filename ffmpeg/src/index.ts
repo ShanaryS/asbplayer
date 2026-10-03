@@ -12,4 +12,10 @@ export type {
     FfmpegSessionState,
     FfmpegWorker,
 } from '@project/ffmpeg/session';
-export type { FfmpegErrorCode, FfmpegLibraryInfo, FfmpegRuntimeInfo, WorkerRequest } from '@project/ffmpeg/protocol';
+export type {
+    FfmpegErrorCode,
+    FfmpegLibraryInfo,
+    FfmpegRuntimeInfo,
+    FfmpegTranscodeProgress,
+    WorkerRequest,
+} from '@project/ffmpeg/protocol';

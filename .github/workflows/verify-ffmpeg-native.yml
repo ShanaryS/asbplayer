@@ -39,6 +39,7 @@ jobs:
                         - 'ffmpeg/package.json'
                         - 'ffmpeg/scripts/**'
                         - 'ffmpeg/source-pnpm-lock.yaml'
+                        - 'ffmpeg/src/native.ts'
                         - 'ffmpeg/tests/native/**'
                         - 'ffmpeg/tests/wasm/**'
                         - 'pnpm-workspace.yaml'

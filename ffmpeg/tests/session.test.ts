@@ -1,5 +1,11 @@
 import { createFfmpegSession, ffmpegAssetUrls, ffmpegMetadata } from '@project/ffmpeg';
-import type { FfmpegRuntimeInfo, FfmpegWorker, PreparedFfmpegAssets, WorkerRequest } from '@project/ffmpeg';
+import type {
+    FfmpegRuntimeInfo,
+    FfmpegTranscodeProgress,
+    FfmpegWorker,
+    PreparedFfmpegAssets,
+    WorkerRequest,
+} from '@project/ffmpeg';
 
 const preparedAssets = (): PreparedFfmpegAssets => ({
     workerURL: 'blob:verified-worker',
@@ -26,6 +32,7 @@ class FakeWorker implements FfmpegWorker {
     readonly messages: WorkerRequest[] = [];
     readonly terminate = jest.fn();
     responseInfo = runtimeInfo();
+    transcodeResult = new Uint8Array([1, 2, 3]).buffer;
     autoReply = true;
 
     postMessage(message: WorkerRequest) {
@@ -38,10 +45,18 @@ class FakeWorker implements FfmpegWorker {
                         sessionId: message.sessionId,
                         requestId: message.requestId,
                         ok: true,
-                        result: this.responseInfo,
+                        result: message.operation === 'transcodeAudio' ? this.transcodeResult : this.responseInfo,
                     },
                 })
             )
+        );
+    }
+
+    progress(progress: unknown, request = this.messages.at(-1)!) {
+        this.target.dispatchEvent(
+            new MessageEvent('message', {
+                data: { sessionId: request.sessionId, requestId: request.requestId, type: 'progress', progress },
+            })
         );
     }
 
@@ -218,6 +233,171 @@ describe('FFmpeg session', () => {
         expect(worker.messages.map(({ operation }) => operation)).toEqual(['initialize', 'inspect']);
         expect(session.state).toBe('ready');
         expect(worker.terminate).not.toHaveBeenCalled();
+    });
+
+    it('transcodes through the worker boundary and returns the encoded bytes', async () => {
+        const worker = new FakeWorker();
+        const session = createFfmpegSession({
+            assetBaseUrl: 'https://example.test/ffmpeg/',
+            workerFactory: () => worker,
+        });
+        const runtime = await session.load();
+        const input = new Blob([new Uint8Array([9, 8, 7])]);
+
+        await expect(runtime.transcodeAudio({ input, trackIndex: 0, onProgress: jest.fn() })).resolves.toEqual(
+            new Uint8Array([1, 2, 3]).buffer
+        );
+        expect(worker.messages[1]).toMatchObject({ operation: 'transcodeAudio', trackIndex: 0, input });
+    });
+
+    it('delivers multiple progress updates without resolving the conversion before its output arrives', async () => {
+        const worker = new FakeWorker();
+        const session = createFfmpegSession({
+            assetBaseUrl: 'https://example.test/ffmpeg/',
+            workerFactory: () => worker,
+        });
+        const runtime = await session.load();
+        worker.autoReply = false;
+        const updates: FfmpegTranscodeProgress[] = [];
+        let completed = false;
+        const conversion = runtime
+            .transcodeAudio({
+                input: new Blob(),
+                trackIndex: 0,
+                onProgress: (progress) => updates.push(progress),
+            })
+            .then((output) => {
+                completed = true;
+                return output;
+            });
+        const reports: FfmpegTranscodeProgress[] = [
+            { stage: 'transcoding', processedSeconds: 0, totalSeconds: 60 },
+            { stage: 'transcoding', processedSeconds: 30, totalSeconds: 60 },
+            { stage: 'finalizing', processedSeconds: 60, totalSeconds: 60 },
+        ];
+        for (const report of reports) worker.progress(report);
+        await Promise.resolve();
+        expect(updates).toEqual(reports);
+        expect(completed).toBe(false);
+        const request = worker.messages.at(-1)!;
+        worker.target.dispatchEvent(
+            new MessageEvent('message', {
+                data: {
+                    sessionId: request.sessionId,
+                    requestId: request.requestId,
+                    ok: true,
+                    result: worker.transcodeResult,
+                },
+            })
+        );
+        await expect(conversion).resolves.toEqual(worker.transcodeResult);
+        worker.progress(reports[1], request);
+        expect(updates).toEqual(reports);
+        session.dispose();
+    });
+
+    it('ignores late progress for a cancelled conversion and routes updates to the remaining request', async () => {
+        const worker = new FakeWorker();
+        const session = createFfmpegSession({
+            assetBaseUrl: 'https://example.test/ffmpeg/',
+            workerFactory: () => worker,
+        });
+        const runtime = await session.load();
+        worker.autoReply = false;
+        const cancelledUpdates = jest.fn();
+        const updates: FfmpegTranscodeProgress[] = [];
+        const controller = new AbortController();
+        const first = runtime.transcodeAudio({
+            input: new Blob(),
+            trackIndex: 0,
+            signal: controller.signal,
+            onProgress: cancelledUpdates,
+        });
+        const firstRequest = worker.messages.at(-1)!;
+        const second = runtime.transcodeAudio({
+            input: new Blob(),
+            trackIndex: 1,
+            onProgress: (progress) => updates.push(progress),
+        });
+        const secondRequest = worker.messages.at(-1)!;
+        controller.abort();
+        await expect(first).rejects.toMatchObject({ code: 'aborted' });
+        const report: FfmpegTranscodeProgress = {
+            stage: 'transcoding',
+            processedSeconds: 5,
+            totalSeconds: undefined,
+        };
+        worker.progress(report, firstRequest);
+        worker.progress(report, secondRequest);
+        expect(cancelledUpdates).not.toHaveBeenCalled();
+        expect(updates).toEqual([report]);
+        worker.target.dispatchEvent(
+            new MessageEvent('message', {
+                data: {
+                    sessionId: secondRequest.sessionId,
+                    requestId: secondRequest.requestId,
+                    ok: true,
+                    result: worker.transcodeResult,
+                },
+            })
+        );
+        await expect(second).resolves.toEqual(worker.transcodeResult);
+        session.dispose();
+    });
+
+    it.each([
+        { stage: 'transcoding', processedSeconds: NaN, totalSeconds: undefined },
+        { stage: 'transcoding', processedSeconds: -1, totalSeconds: undefined },
+        { stage: 'transcoding', processedSeconds: 1 },
+        { stage: 'transcoding', processedSeconds: 1, totalSeconds: 0 },
+        { stage: 'transcoding', processedSeconds: 1, totalSeconds: Infinity },
+        { stage: 'unknown', processedSeconds: 1, totalSeconds: undefined },
+    ])('rejects malformed progress and terminates pending work: %j', async (report) => {
+        const worker = new FakeWorker();
+        const session = createFfmpegSession({
+            assetBaseUrl: 'https://example.test/ffmpeg/',
+            workerFactory: () => worker,
+        });
+        const runtime = await session.load();
+        worker.autoReply = false;
+        const conversion = runtime.transcodeAudio({ input: new Blob(), trackIndex: 0, onProgress: jest.fn() });
+        worker.progress(report);
+        await expect(conversion).rejects.toMatchObject({ code: 'protocol' });
+        expect(session.state).toBe('failed');
+        expect(worker.terminate).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects progress received for initialization', async () => {
+        const worker = new FakeWorker();
+        worker.autoReply = false;
+        const session = createFfmpegSession({
+            assetBaseUrl: 'https://example.test/ffmpeg/',
+            workerFactory: () => worker,
+        });
+        const loading = session.load();
+        worker.progress({ stage: 'transcoding', processedSeconds: 0, totalSeconds: undefined });
+        await expect(loading).rejects.toMatchObject({ code: 'protocol' });
+    });
+
+    it('rejects a conversion when its progress consumer throws', async () => {
+        const worker = new FakeWorker();
+        const session = createFfmpegSession({
+            assetBaseUrl: 'https://example.test/ffmpeg/',
+            workerFactory: () => worker,
+        });
+        const runtime = await session.load();
+        worker.autoReply = false;
+        const error = new Error('Progress consumer failed');
+        const conversion = runtime.transcodeAudio({
+            input: new Blob(),
+            trackIndex: 0,
+            onProgress: () => {
+                throw error;
+            },
+        });
+        worker.progress({ stage: 'transcoding', processedSeconds: 1, totalSeconds: undefined });
+        await expect(conversion).rejects.toBe(error);
+        session.dispose();
     });
 
     it('rejects an already-aborted load without creating a worker', async () => {

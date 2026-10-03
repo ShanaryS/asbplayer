@@ -3,6 +3,11 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
+// These test modules are assembled alongside the generated runtime inside Docker.
+// eslint-disable-next-line no-restricted-imports
+import { NativeBridge } from './generated/native-bridge.mjs';
+// eslint-disable-next-line no-restricted-imports
+import { testAudioConversion } from './transcode-smoke.mjs';
 
 const runtimeRoot = resolve(process.argv[2] ?? '/output');
 const expectedRuntimeVersion = process.env.ASB_RUNTIME_VERSION;
@@ -41,9 +46,9 @@ assert.equal(info.runtimeVersion, expectedRuntimeVersion);
 assert.equal(info.ffmpegVersion, expectedFfmpegVersion);
 assert.equal(info.ffmpegConfiguration, expectedConfiguration);
 assert.equal(info.ffmpegLicense, expectedLicense);
-assert.deepEqual(info.linkedLibraries, ['libavutil']);
-assert.deepEqual(info.operations, ['inspect']);
-assert.equal(info.libraries.length, 1);
+assert.deepEqual(info.linkedLibraries, ['libavutil', 'libavcodec', 'libavformat', 'libswresample']);
+assert.deepEqual(info.operations, ['inspect', 'transcodeAudio']);
+assert.equal(info.libraries.length, 4);
 assert.equal(info.libraries[0].name, 'libavutil');
 assert.ok(Number.isSafeInteger(info.libraries[0].version) && info.libraries[0].version > 0);
 assert.equal(info.libraries[0].configuration, expectedConfiguration);
@@ -52,3 +57,17 @@ assert.equal(info.libraries[0].license, expectedLicense);
 process.stdout.write(
     `WASM runtime smoke test passed: asbplayer ${info.runtimeVersion}, FFmpeg ${info.ffmpegVersion}\n`
 );
+
+// Conversions can grow memory; exported views must follow the new heap.
+const initialHeap = module.HEAPU8;
+const allocation = module._malloc(initialHeap.byteLength);
+assert.ok(allocation);
+assert.notEqual(module.HEAPU8, initialHeap);
+assert.equal(module.HEAPU32.buffer, module.HEAPU8.buffer);
+module._free(allocation);
+
+const bridge = NativeBridge.create(module);
+assert.deepEqual(bridge.inspect(), info);
+if (process.env.ASB_TEST_MEDIA === '1') {
+    await testAudioConversion(bridge, new URL('./generated/fixtures/', import.meta.url));
+}

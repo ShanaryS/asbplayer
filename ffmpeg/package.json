@@ -18,6 +18,7 @@
         "fetch": "node scripts/fetch.mjs",
         "verify:candidate": "node scripts/verify-artifacts.mjs --candidate --source",
         "test:native-wasm": "bash scripts/test-native-wasm.sh",
+        "test:media": "bash scripts/test-native-wasm.sh --media",
         "verify:locked:runtime": "node scripts/verify-artifacts.mjs",
         "verify:locked:source": "node scripts/verify-artifacts.mjs --source",
         "select:runtime": "node scripts/select-runtime.mjs",

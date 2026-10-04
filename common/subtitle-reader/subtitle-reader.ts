@@ -41,6 +41,11 @@ const nonContentCharacterClass = String.raw`\s\p{Cc}\p{Default_Ignorable_Code_Po
 const hasTextContentRegex = new RegExp(`[^${nonContentCharacterClass}]`, 'u');
 const nonContentAtEdgesRegex = new RegExp(`^[${nonContentCharacterClass}]+|[${nonContentCharacterClass}]+$`, 'gu');
 
+// Common ASS-style override tags are sometimes embedded in SRT files. Hide blocks
+// containing only alignment, italic, underline, strikeout, and bold tags, while
+// preserving other brace-delimited text to avoid false positives. See issue #471.
+const assOverrideTagRegex = /\{(?:\\(?:an[1-9]|[ius][01]|b(?:[01]|[1-9]00)))+\}/g;
+
 const assNewLineRegex = RegExp(/\\[nN]/, 'ig');
 // Character classes shared by the Netflix ruby regexes below so they cannot drift apart.
 const netflixRubyKanaClass = '\\p{sc=Hira}\\p{sc=Kana}';
@@ -210,7 +215,7 @@ export default class SubtitleReader {
                 return {
                     start: Math.floor((node.startTime as number) * 1000),
                     end: Math.floor((node.endTime as number) * 1000),
-                    text: this._filterText(node.text),
+                    text: this._filterText(node.text.replace(assOverrideTagRegex, '')),
                     track: track,
                 };
             });

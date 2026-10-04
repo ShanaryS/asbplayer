@@ -618,3 +618,76 @@ describe('SubtitleReader Netflix ruby text conversion', () => {
         expect(tokens.map(({ readings }) => readings[0].reading)).toEqual(['ミウ', 'ねつぞう']);
     });
 });
+
+describe('SubtitleReader SRT override tag handling', () => {
+    it.each([
+        '\\an1',
+        '\\an2',
+        '\\an3',
+        '\\an4',
+        '\\an5',
+        '\\an6',
+        '\\an7',
+        '\\an8',
+        '\\an9',
+        '\\i0',
+        '\\i1',
+        '\\u0',
+        '\\u1',
+        '\\s0',
+        '\\s1',
+        '\\b0',
+        '\\b1',
+        '\\b100',
+        '\\b200',
+        '\\b300',
+        '\\b400',
+        '\\b500',
+        '\\b600',
+        '\\b700',
+        '\\b800',
+        '\\b900',
+    ])('strips whitelisted ASS-style tag %s from SRT cue text (#471)', async (tag) => {
+        const [cue] = await createReader().subtitles([srtFile(`{${tag}}Hello`)]);
+        expect(cue.text).toBe('Hello');
+    });
+
+    it('strips multiple whitelisted tags in one block', async () => {
+        const [cue] = await createReader().subtitles([srtFile('{\\an8\\i1\\b700}Hello{\\i0\\b0} world')]);
+        expect(cue.text).toBe('Hello world');
+    });
+
+    it('strips multiple override tags and keeps the surrounding text', async () => {
+        const [cue] = await createReader().subtitles([srtFile('{\\an8}{\\i1}Hello{\\i0} world')]);
+        expect(cue.text).toBe('Hello world');
+    });
+
+    it.each([
+        '{}',
+        '{text}',
+        '{\\}',
+        '{\\unknown}',
+        '{\\pos(10,20)}',
+        '{\\an0}',
+        '{\\an10}',
+        '{\\i2}',
+        '{\\u2}',
+        '{\\s2}',
+        '{\\b-1}',
+        '{\\b00}',
+        '{\\b70}',
+        '{\\b1000}',
+        '{\\an8 text}',
+        '{\\an8\\pos(10,20)}',
+        '{\\pos(10,20)\\an8}',
+        '{\\an8',
+    ])('preserves non-whitelisted or malformed block %s', async (block) => {
+        const [cue] = await createReader().subtitles([srtFile(`Hello${block} world`)]);
+        expect(cue.text).toBe(`Hello${block} world`);
+    });
+
+    it('preserves unsupported blocks alongside whitelisted blocks', async () => {
+        const [cue] = await createReader().subtitles([srtFile('{\\an8}Hello{\\unknown}{\\i1} world{\\i0}')]);
+        expect(cue.text).toBe('Hello{\\unknown} world');
+    });
+});

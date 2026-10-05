@@ -164,10 +164,11 @@ export class CardPublisher {
 
     private async _updateCard(card: CardModel, src: string | undefined, tabId: number, noteId?: number) {
         const ankiSettings = (await this._settingsProvider.get(ankiSettingsKeys)) as AnkiSettings;
+        const updateSameLine = await this._settingsProvider.getSingle('updateLastCardForSameSubtitle');
         const cardName = await exportCard(
             card,
             ankiSettings,
-            noteId === undefined ? 'updateLast' : 'updateSpecific',
+            noteId === undefined ? (updateSameLine ? 'updateLastForSameLine' : 'updateLast') : 'updateSpecific',
             undefined,
             noteId
         );

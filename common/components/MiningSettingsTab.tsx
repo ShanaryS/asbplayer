@@ -44,6 +44,7 @@ const MiningSettingsTab: React.FC<Props> = ({ settings, onSettingChanged, showWe
         preferMp3,
         copyToClipboardOnMine,
         alwaysUseSubtitleForSentence,
+        updateLastCardForSameSubtitle,
     } = settings;
     return (
         <Stack spacing={1}>
@@ -183,6 +184,16 @@ const MiningSettingsTab: React.FC<Props> = ({ settings, onSettingChanged, showWe
                     />
                 }
                 label={t('settings.alwaysUseSubtitleForSentence')}
+                labelPlacement="start"
+            />
+            <SwitchLabelWithHoverEffect
+                control={
+                    <Switch
+                        checked={updateLastCardForSameSubtitle}
+                        onChange={(event) => onSettingChanged('updateLastCardForSameSubtitle', event.target.checked)}
+                    />
+                }
+                label={t('settings.updateLastCardForSameSubtitle')}
                 labelPlacement="start"
             />
             <SettingsSection>{t('settings.audio')}</SettingsSection>

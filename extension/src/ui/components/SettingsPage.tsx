@@ -26,7 +26,7 @@ import { useLocationHash } from '@project/common/hooks/use-location-hash';
 
 const useStyles = makeStyles<Theme>((theme) => ({
     root: {
-        '& .MuiPaper-root': {
+        '& > .MuiDialog-container > .MuiDialog-paper': {
             height: '100vh',
         },
     },
@@ -134,7 +134,7 @@ const SettingsPage = ({
                         extensionSupportsSeekableTrackSetting
                         extensionSupportsAutoCopyableTrackSetting
                         extensionSupportsDictionaryTokenStatusDisplayAlpha
-                        extensionSupportsDictionaryPlayback
+                        supportsDictionaryPlayback
                         extensionSupportsDictionaryYomitanMecab
                         extensionSupportsSubtitleTrackSelectorInWebApp
                         extensionSupportsSubtitleListCustomization

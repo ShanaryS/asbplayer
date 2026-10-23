@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
-import { PlayMode } from '@project/common';
-import type { Message } from '@project/common';
+import { PlayMode, PostMineAction } from '@project/common';
+import type { Message, SubtitleModel } from '@project/common';
 import PlayerChannel from '@project/common/app/services/player-channel';
 import { defaultSettings } from '@project/common/settings';
 import type { MiscSettings } from '@project/common/settings';
+import VideoChannel from '@project/common/app/services/video-channel';
+import type { VideoProtocol } from '@project/common/app/services/video-protocol';
+import type { MiningAudioSnapshot } from '@project/common/audio-transcode/mining-audio';
 
 class TestBroadcastChannel {
     static instance?: TestBroadcastChannel;
@@ -58,6 +61,33 @@ describe('PlayerChannel playback state', () => {
 
         expect(received).toEqual([settings, { ...settings, activeRecipeId: null }]);
         channel.close();
+    });
+
+    it('delivers the captured mining snapshot to history through the player channel', () => {
+        const player = new PlayerChannel('test-channel');
+        const broadcastChannel = TestBroadcastChannel.instance!;
+        const protocol: VideoProtocol = { postMessage() {}, close() {} };
+        const video = new VideoChannel(protocol);
+        const received: (MiningAudioSnapshot | undefined)[] = [];
+        video.onCopy((_subtitle, _surrounding, _fields, _audio, _image, _url, _action, _id, _timestamp, snapshot) => {
+            received.push(snapshot);
+        });
+        const subtitle: SubtitleModel = {
+            text: '',
+            start: 0,
+            end: 1000,
+            originalStart: 0,
+            originalEnd: 1000,
+            track: 0,
+        };
+        const snapshot = { audio: new Blob(['sealed audio']), durationMs: 1040 };
+        player.copy(subtitle, [], {}, 'video.mp4', 1000, PostMineAction.none, snapshot);
+        protocol.onMessage?.({ data: broadcastChannel.sent[0] });
+        player.copy(subtitle, [], {}, 'video.mp4', 1000, PostMineAction.none);
+        protocol.onMessage?.({ data: broadcastChannel.sent[1] });
+        expect(received).toEqual([snapshot, undefined]);
+        player.close();
+        video.close();
     });
 
     it('sends the timestamp, showing indexes, and paused state together', () => {
@@ -212,6 +242,31 @@ describe('PlayerChannel playback state', () => {
         );
 
         expect(received).toEqual([PlayMode.fastForward]);
+        channel.close();
+    });
+
+    it('receives the encoded prefix, completion state, and supports clearing it', () => {
+        const channel = new PlayerChannel('test-channel');
+        const broadcastChannel = TestBroadcastChannel.instance!;
+        const received: unknown[] = [];
+        const audio = new Blob(['audio']);
+        channel.onTranscodedAudio((value) => received.push(value));
+
+        broadcastChannel.onmessage?.(
+            new MessageEvent('message', {
+                data: { command: 'transcodedAudio', required: true, audio, active: true, complete: false },
+            })
+        );
+        broadcastChannel.onmessage?.(
+            new MessageEvent('message', {
+                data: { command: 'transcodedAudio', required: false, active: false, complete: false },
+            })
+        );
+
+        expect(received).toEqual([
+            { command: 'transcodedAudio', required: true, audio, active: true, complete: false },
+            { command: 'transcodedAudio', required: false, active: false, complete: false },
+        ]);
         channel.close();
     });
 });

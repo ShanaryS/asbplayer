@@ -1,6 +1,8 @@
 import project from '@project/common/project';
+import { opusAudioMimeType } from '@project/common/audio-transcode';
+import type { AudioTranscodeHost } from '@project/common/audio-transcode';
 import { createFfmpegObjectUrls, createFfmpegSession, ffmpegMetadata, unpackFfmpegRuntime } from '@project/ffmpeg';
-import { prepareFfmpegRuntimeArchive } from '@project/client/src/services/ffmpeg-cache';
+import { hasCachedFfmpegRuntime, prepareFfmpegRuntimeArchive } from '@project/client/src/services/ffmpeg-cache';
 import { asbError, asbTrace } from '@project/common/util/log';
 import { createGithubReleaseFetcher } from '@project/client/src/services/ffmpeg-release';
 
@@ -49,4 +51,20 @@ export const createWebFfmpegSession = ({ signal }: { signal?: AbortSignal } = {}
             return createFfmpegObjectUrls(executables);
         },
     });
+};
+
+export const webAudioTranscodeHost: AudioTranscodeHost = {
+    supportsOpusStreaming: () => typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported(opusAudioMimeType),
+    isAvailable: async () => {
+        const online = navigator.onLine;
+        const available =
+            online ||
+            (await hasCachedFfmpegRuntime(
+                ffmpegMetadata.runtimeArchive,
+                typeof caches === 'undefined' ? undefined : caches
+            ));
+        asbTrace('audio/transcode', 'Checked decoder availability', { online, available });
+        return available;
+    },
+    createSession: createWebFfmpegSession,
 };

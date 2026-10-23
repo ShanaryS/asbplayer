@@ -51,12 +51,16 @@ beforeEach(async () => {
 
     const config = JSON.parse(await readFile(resolve(__dirname, '../build-config.json'), 'utf8'));
     config.limits.initialMemoryBytes = 65536;
-    const upstream = 'Example upstream source tarball';
-    config.ffmpeg.source.sha256 = digest(upstream);
-    await writeFile(resolve(root, 'build-config.json'), JSON.stringify(config));
     const sourcesRoot = resolve(root, 'sources', `${stem}-sources`);
     await mkdir(sourcesRoot, { recursive: true });
-    await writeFile(resolve(sourcesRoot, 'ffmpeg-9.0.2.tar.gz'), upstream);
+    for (const [name, dependency] of Object.entries(config)) {
+        if (!dependency?.source) continue;
+        const upstream = `Example ${name} source tarball`;
+        dependency.source.url = `https://example.com/${name}.tar.gz`;
+        dependency.source.sha256 = digest(upstream);
+        await writeFile(resolve(sourcesRoot, `${name}.tar.gz`), upstream);
+    }
+    await writeFile(resolve(root, 'build-config.json'), JSON.stringify(config));
     await exec('tar', [
         '--format=ustar',
         '-czf',
@@ -98,6 +102,8 @@ beforeEach(async () => {
             instantiateWasm({}, () => {});
             return {
                 _asb_runtime_info_json: () => 0,
+                _asb_transcode_audio: () => 0,
+                _asb_last_error: () => 0,
                 UTF8ToString: () => ${JSON.stringify(JSON.stringify(info))},
             };
         };

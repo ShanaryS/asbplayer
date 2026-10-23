@@ -6,11 +6,20 @@ ARG ASB_MAXIMUM_MEMORY_BYTES
 ARG ASB_STACK_BYTES
 
 COPY .cache/sources/ffmpeg /src/ffmpeg
+COPY .cache/sources/opus /src/opus
 COPY .cache/build/ffmpeg-configure-args /src/asbplayer/ffmpeg-configure-args
 COPY .cache/build/asb-build-config.hpp /src/asbplayer/generated/asb-build-config.hpp
-COPY native/runtime.cpp native/*.hpp /src/asbplayer/native/
-COPY native/include /src/asbplayer/native/include
 
+WORKDIR /src/opus
+RUN emconfigure ./configure --host=wasm32-unknown-emscripten --prefix=/build/opus \
+        --disable-shared --enable-static --disable-asm --disable-rtcd --disable-intrinsics \
+        --disable-doc --disable-extra-programs --disable-deep-plc --disable-dred --disable-osce \
+        CFLAGS='-O3' \
+    && emmake make -j"$(nproc)" \
+    && emmake make install
+
+ENV PKG_CONFIG_PATH=/build/opus/lib/pkgconfig
+COPY scripts/opus-pkg-config.sh /src/asbplayer/opus-pkg-config.sh
 WORKDIR /src/ffmpeg
 RUN mkdir -p /build/ffmpeg /output \
     && cd /build/ffmpeg \
@@ -20,25 +29,30 @@ RUN mkdir -p /build/ffmpeg /output \
         || { tail -120 ffbuild/config.log; exit 1; } \
     && cp ffbuild/config.mak /output/config.mak \
     && cp config.h /output/config.h \
-    && emmake make -j"$(nproc)" libavutil/libavutil.a \
-    && em++ -std=c++23 -O3 -fno-exceptions -fno-rtti \
+    && emmake make -j"$(nproc)" libavutil/libavutil.a libavcodec/libavcodec.a libavformat/libavformat.a libswresample/libswresample.a
+
+COPY native/runtime.cpp native/*.hpp /src/asbplayer/native/
+COPY native/include /src/asbplayer/native/include
+WORKDIR /build/ffmpeg
+RUN em++ -std=c++23 -O3 -fno-exceptions -fno-rtti \
+        -I/build/opus/include \
         -I/src/asbplayer/generated -I/src/asbplayer/native -I/src/asbplayer/native/include \
         -I/build/ffmpeg -I/src/ffmpeg \
         -c /src/asbplayer/native/runtime.cpp -o /build/runtime.o \
     && em++ -std=c++23 -O3 -fno-exceptions -fno-rtti --no-entry \
-        /build/runtime.o libavutil/libavutil.a \
+        /build/runtime.o libavformat/libavformat.a libavcodec/libavcodec.a libswresample/libswresample.a libavutil/libavutil.a /build/opus/lib/libopus.a \
         -o /output/ffmpeg-core.js \
         -sMODULARIZE=1 -sEXPORT_ES6=1 -sENVIRONMENT=worker \
-        -sFILESYSTEM=0 -sDYNAMIC_EXECUTION=0 \
+        -sFORCE_FILESYSTEM=0 -sDYNAMIC_EXECUTION=0 \
         -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=${ASB_INITIAL_MEMORY_BYTES} \
         -sMAXIMUM_MEMORY=${ASB_MAXIMUM_MEMORY_BYTES} -sSTACK_SIZE=${ASB_STACK_BYTES} \
-        -sEXPORTED_FUNCTIONS='["_asb_runtime_info_json"]' \
-        -sEXPORTED_RUNTIME_METHODS='["UTF8ToString"]' \
+        -sEXPORTED_FUNCTIONS='["_asb_runtime_info_json","_asb_transcode_audio","_asb_last_error","_malloc","_free"]' \
+        -sEXPORTED_RUNTIME_METHODS='["UTF8ToString","HEAPU8","HEAPU32"]' \
         -Wl,-Map=/output/ffmpeg-core.map \
     && em++ --version > /output/compiler-version.txt
 
 COPY native/*_test.cpp /src/asbplayer/tests/native/
-COPY scripts/runtime-smoke.mjs /src/asbplayer/scripts/runtime-smoke.mjs
+COPY scripts/runtime-smoke.mjs scripts/transcode-smoke.mjs scripts/webm-info.mjs /src/asbplayer/scripts/
 
 FROM builder AS cpp-test
 RUN set -eux; \
@@ -51,9 +65,11 @@ RUN set -eux; \
     done
 
 FROM cpp-test AS wasm-test
+COPY .cache/build/native-wasm-test /src/asbplayer/scripts/generated
 ARG ASB_RUNTIME_VERSION
 ARG ASB_FFMPEG_VERSION
-RUN ASB_RUNTIME_VERSION="$ASB_RUNTIME_VERSION" ASB_FFMPEG_VERSION="$ASB_FFMPEG_VERSION" \
+ARG ASB_TEST_MEDIA=0
+RUN ASB_RUNTIME_VERSION="$ASB_RUNTIME_VERSION" ASB_FFMPEG_VERSION="$ASB_FFMPEG_VERSION" ASB_TEST_MEDIA="$ASB_TEST_MEDIA" \
     node /src/asbplayer/scripts/runtime-smoke.mjs /output
 
 FROM scratch AS runtime

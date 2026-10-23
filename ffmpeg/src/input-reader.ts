@@ -13,9 +13,12 @@ export const createInputReader = (
     input: Blob,
     {
         maximumReadBytes = 64 * 1024,
+        readAheadBytes = 4 * 1024 * 1024,
         readSlice = (slice: Blob) => new FileReaderSync().readAsArrayBuffer(slice),
     }: {
         maximumReadBytes?: number;
+        /** Bounded browser read-ahead; zero disables prefetching. Independent of native request limits. */
+        readAheadBytes?: number;
         readSlice?: (slice: Blob) => ArrayBuffer;
     } = {}
 ): InputReader => {
@@ -24,6 +27,9 @@ export const createInputReader = (
     if (!Number.isSafeInteger(maximumReadBytes) || maximumReadBytes <= 0) {
         throw new RangeError('Invalid maximum read size');
     }
+    if (!Number.isSafeInteger(readAheadBytes) || readAheadBytes < 0) throw new RangeError('Invalid read-ahead size');
+    let cacheOffset = 0;
+    let cache = new Uint8Array(0);
     return {
         size,
         readAt(offset, length) {
@@ -33,9 +39,18 @@ export const createInputReader = (
             }
             if (offset >= size || length === 0) return new Uint8Array();
             const count = Math.min(length, size - offset);
-            const bytes = new Uint8Array(readSlice(input.slice(offset, offset + count)));
-            if (bytes.byteLength !== count) throw new Error('Input read returned an unexpected number of bytes');
-            return bytes;
+            if (offset < cacheOffset || offset - cacheOffset + count > cache.byteLength) {
+                // FileReaderSync crosses the browser's file boundary on each call.
+                // Reuse a small window while FFmpeg demuxes or skips video packets.
+                const readCount = Math.min(Math.max(count, readAheadBytes), size - offset);
+                const bytes = new Uint8Array(readSlice(input.slice(offset, offset + readCount)));
+                if (bytes.byteLength !== readCount) {
+                    throw new Error('Input read returned an unexpected number of bytes');
+                }
+                cacheOffset = offset;
+                cache = bytes;
+            }
+            return cache.subarray(offset - cacheOffset, offset - cacheOffset + count);
         },
     };
 };

@@ -1,11 +1,13 @@
 import { ffmpegExecutables } from '@project/ffmpeg/assets';
 
 const blockSize = 512;
-const textDecoder = new TextDecoder();
+// Created on first use so importing the package has no environment requirements.
+let textDecoder: TextDecoder | undefined;
 
 const readString = (header: Uint8Array, offset: number, length: number) => {
     const field = header.subarray(offset, offset + length);
     const end = field.indexOf(0);
+    textDecoder ??= new TextDecoder();
     return textDecoder.decode(end === -1 ? field : field.subarray(0, end));
 };
 

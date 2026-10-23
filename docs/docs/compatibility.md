@@ -16,6 +16,8 @@ import project from '@site/src/project';
 | **Chromium-based browsers**                                                   |                                       ✓                                       |                                                                               |        ✓        |        ✓        |                                          |
 | **Firefox**                                                                   | [Depends](https://support.mozilla.org/en-US/kb/html5-audio-and-video-firefox) | [Depends](https://support.mozilla.org/en-US/kb/html5-audio-and-video-firefox) |        ✓        |                 |
 
+When a local file has audio in a Dolby-patented format the browser cannot decode, asbplayer automatically converts that track in the background so it can be played. The converted audio is used both for playback and for audio on mined cards. Conversion runs once per file. Playback and mining can begin while conversion is still running; seeking is limited to buffered audio until it finishes. The converter is downloaded the first time it is used, so an Internet connection is needed for that first conversion.
+
 ## Extension {#extension}
 
 ### Browsers and features {#browsers-and-features}

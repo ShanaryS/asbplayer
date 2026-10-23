@@ -66,7 +66,8 @@ beforeEach(async () => {
     await writeFile(resolve(root, 'artifact-lock.json'), '{}');
     const bodies = {
         'ffmpeg-worker.js': 'export {};',
-        'ffmpeg-core.js': 'export const _asb_runtime_info_json = () => 0;',
+        'ffmpeg-core.js':
+            'export const _asb_runtime_info_json = () => 0; export const _asb_transcode_audio = () => 0; export const _asb_last_error = () => 0;',
         'ffmpeg-core.wasm': Buffer.from([0, 97, 115, 109, 1, 0, 0, 0]),
         ...Object.fromEntries(inventory.notices.map((filename) => [`notices/${filename}`, `License: ${filename}`])),
     };

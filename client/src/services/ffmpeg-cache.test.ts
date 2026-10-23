@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import {
     ffmpegRuntimeCacheKey,
     ffmpegRuntimeCacheName,
+    hasCachedFfmpegRuntime,
     prepareFfmpegRuntimeArchive,
 } from '@project/client/src/services/ffmpeg-cache';
 
@@ -59,6 +60,9 @@ const memoryCaches = () => {
         async keys() {
             return [...caches.keys()];
         },
+        async has(name: string) {
+            return caches.has(name);
+        },
     } as CacheStorage;
 };
 const blockedStorage = {
@@ -72,6 +76,30 @@ it('caches the verified archive on first use and reuses it offline', async () =>
     const selected = archive('0.1.0');
     expect(await (await prepare(selected, storage, serving(selected))).text()).toBe(selected.body);
     expect(await (await prepare(selected, storage, offline)).text()).toBe(selected.body);
+});
+
+it('checks a verified installation without loading it, including after an offline restart', async () => {
+    const storage = memoryCaches();
+    const selected = archive('0.1.0');
+    expect(await hasCachedFfmpegRuntime(selected, storage)).toBe(false);
+    expect(await storage.keys()).toEqual([]);
+    await prepare(selected, storage, serving(selected));
+    expect(await hasCachedFfmpegRuntime(selected, storage)).toBe(true);
+    expect(await (await prepare(selected, storage, offline)).text()).toBe(selected.body);
+    expect(await hasCachedFfmpegRuntime(archive('0.2.0'), storage)).toBe(false);
+    const cache = await storage.open(ffmpegRuntimeCacheName);
+    await cache.put(ffmpegRuntimeCacheKey, new Response(selected.body));
+    expect(await hasCachedFfmpegRuntime(selected, storage)).toBe(false);
+});
+
+it('reports an unavailable installation when persistent storage cannot be accessed', async () => {
+    expect(await hasCachedFfmpegRuntime(archive('0.1.0'), undefined)).toBe(false);
+    const brokenStorage = {
+        has: async () => {
+            throw new Error('Storage is disabled');
+        },
+    } as unknown as CacheStorage;
+    expect(await hasCachedFfmpegRuntime(archive('0.1.0'), brokenStorage)).toBe(false);
 });
 
 it('keeps a single cached archive when the selected runtime changes', async () => {

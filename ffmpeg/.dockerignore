@@ -6,9 +6,14 @@
 !.cache/build/
 !.cache/build/ffmpeg-configure-args
 !.cache/build/asb-build-config.hpp
+!.cache/build/native-wasm-test/
+!.cache/build/native-wasm-test/**
 !.cache/build/docker-build-args
 !.cache/build/platform
 !native/
 !native/**
 !scripts/
 !scripts/runtime-smoke.mjs
+!scripts/transcode-smoke.mjs
+!scripts/webm-info.mjs
+!scripts/opus-pkg-config.sh

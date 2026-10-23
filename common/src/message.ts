@@ -32,6 +32,7 @@ import type {
 } from '@project/common/src/model';
 import type { AsbPlayerToVideoCommandV2 } from '@project/common/src/command';
 import type { LogLine, LogSnapshot } from '@project/common/util/log-utils';
+import type { MiningAudioSnapshot } from '@project/common/audio-transcode/mining-audio';
 import type {
     Response as WebSocketResponse,
     WebSocketCommand,
@@ -195,6 +196,8 @@ export interface StopRecordingMediaMessage extends Message, ImageCaptureParams {
 export interface CopyMessage extends Message, CardModel {
     readonly command: 'copy';
     readonly postMineAction?: PostMineAction;
+    /** Reuse the video document's mining boundary when creating the history card. */
+    readonly miningAudioSnapshot?: MiningAudioSnapshot;
 }
 
 export interface PublishCardMessage extends Message, CardModel {
@@ -435,6 +438,21 @@ export interface AudioTrackSelectedFromVideoMessage extends Message {
 export interface AudioTrackSelectedToVideoMessage extends Message {
     readonly command: 'audioTrackSelected';
     readonly id: string;
+}
+
+/** Immutable encoded prefix while conversion runs; mining can snapshot its complete clusters. */
+export interface TranscodedAudioToVideoMessage extends Message {
+    readonly command: 'transcodedAudio';
+    /** The original audio cannot be recorded by this browser, even before conversion starts. */
+    readonly required: boolean;
+    readonly audio?: Blob;
+    readonly active: boolean;
+    readonly complete: boolean;
+}
+
+export interface AudioBufferedFromVideoMessage extends Message {
+    readonly command: 'audioBuffered';
+    readonly range?: { readonly start: number; readonly end: number };
 }
 
 export interface ToggleSubtitleTrackInListFromVideoMessage extends Message {

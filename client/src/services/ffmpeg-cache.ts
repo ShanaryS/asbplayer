@@ -6,6 +6,9 @@ export const ffmpegRuntimeCacheKey = 'https://ffmpeg.asbplayer.invalid/ffmpeg/ru
 const verificationHeader = 'X-Asbplayer-FFmpeg-SHA256';
 const archiveType = 'application/gzip';
 
+const isVerified = (response: Response, sha256: string) =>
+    response.ok && response.headers.get(verificationHeader) === sha256;
+
 const isHtml = (response: Response) => response.headers.get('Content-Type')?.toLowerCase().includes('text/html');
 
 const verifyResponse = (response: Response) => {
@@ -53,6 +56,24 @@ const download = async (archive: FfmpegRuntimeArchive, fetcher: typeof fetch, si
     return bytes;
 };
 
+/** Check whether the selected runtime archive is cached and verified, without downloading or unpacking it. */
+export const hasCachedFfmpegRuntime = async (
+    archive: Pick<FfmpegRuntimeArchive, 'sha256'>,
+    cacheStorage: CacheStorage | undefined
+) => {
+    if (cacheStorage === undefined) return false;
+    try {
+        // has() avoids creating an empty cache just to check it.
+        if (!(await cacheStorage.has(ffmpegRuntimeCacheName))) return false;
+        const cache = await cacheStorage.open(ffmpegRuntimeCacheName);
+        const cached = await cache.match(ffmpegRuntimeCacheKey);
+        return cached !== undefined && isVerified(cached, archive.sha256);
+    } catch (error) {
+        asbWarn('ffmpeg/cache', 'Could not check whether the runtime is installed', { error });
+        return false;
+    }
+};
+
 /** Return the verified runtime archive. The first use downloads and caches it; later loads trust the cached hash marker. */
 export const prepareFfmpegRuntimeArchive = async (
     archive: FfmpegRuntimeArchive,
@@ -80,7 +101,7 @@ export const prepareFfmpegRuntimeArchive = async (
         return undefined;
     });
     signal.throwIfAborted();
-    if (cached?.ok && cached.headers.get(verificationHeader) === archive.sha256) {
+    if (cached !== undefined && isVerified(cached, archive.sha256)) {
         asbTrace('ffmpeg/cache', 'Reusing verified runtime archive', { cacheName, bytes: archive.bytes });
         return cached.blob();
     }

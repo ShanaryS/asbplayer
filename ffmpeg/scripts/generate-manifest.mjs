@@ -50,6 +50,8 @@ const manifest = {
         configuration,
         license,
     },
+    opus: config.opus,
+    // Unmodified upstream tarballs published with the release as corresponding source.
     sources: upstreamSources(config),
     toolchain: { ...config.toolchain, bundler: { name: 'esbuild', version: esbuildVersion }, compiler },
     license: {

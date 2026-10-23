@@ -2,11 +2,17 @@ import project from '@project/ffmpeg/project';
 import type { PreparedFfmpegAssets } from '@project/ffmpeg/assets';
 import { ffmpegMetadata } from '@project/ffmpeg/metadata';
 import { isWorkerReply } from '@project/ffmpeg/protocol';
-import type { FfmpegErrorCode, FfmpegRuntimeInfo, WorkerRequest, WorkerRequestBody } from '@project/ffmpeg/protocol';
+import type {
+    FfmpegErrorCode,
+    FfmpegRuntimeInfo,
+    FfmpegTranscodeProgress,
+    WorkerRequest,
+    WorkerRequestBody,
+} from '@project/ffmpeg/protocol';
 import { v4 as uuidv4 } from 'uuid';
 
 export type FfmpegWorker = {
-    postMessage(message: WorkerRequest): void;
+    postMessage(message: WorkerRequest, transfer?: Transferable[]): void;
     terminate(): void;
     addEventListener(type: 'message' | 'error' | 'messageerror', listener: (event: any) => void): void;
     removeEventListener(type: 'message' | 'error' | 'messageerror', listener: (event: any) => void): void;
@@ -25,6 +31,13 @@ export class FfmpegError extends Error {
 export type FfmpegRuntime = {
     /** Aborting inspection cancels only that inspection; use session.dispose() to stop the shared worker. */
     inspect(options?: { signal?: AbortSignal }): Promise<FfmpegRuntimeInfo>;
+    transcodeAudio(options: {
+        input: Blob;
+        trackIndex: number;
+        signal?: AbortSignal;
+        onProgress: (progress: FfmpegTranscodeProgress) => void;
+        onChunk: (chunk: ArrayBuffer) => void;
+    }): Promise<number>;
 };
 
 export type CreateFfmpegSessionOptions = {
@@ -44,7 +57,24 @@ export type FfmpegSession = {
     readonly state: FfmpegSessionState;
 };
 
-type Pending = { resolve(value: unknown): void; reject(error: unknown): void; cleanup(): void };
+type Pending = {
+    resolve(value: unknown): void;
+    reject(error: unknown): void;
+    cleanup(): void;
+} & (
+    | {
+          operation: 'transcodeAudio';
+          onProgress: (progress: FfmpegTranscodeProgress) => void;
+          onChunk: (chunk: ArrayBuffer) => void;
+      }
+    | { operation: 'initialize' | 'inspect' }
+);
+type SessionRequest =
+    | Exclude<WorkerRequestBody, { operation: 'transcodeAudio' }>
+    | (Extract<WorkerRequestBody, { operation: 'transcodeAudio' }> & {
+          onProgress: (progress: FfmpegTranscodeProgress) => void;
+          onChunk: (chunk: ArrayBuffer) => void;
+      });
 const abortError = () => new FfmpegError('aborted', 'The FFmpeg session was aborted');
 const defaultWorkerFactory = (url: string): FfmpegWorker =>
     new Worker(url, { type: 'module', name: project.artifacts.ffmpeg.prefix });
@@ -115,19 +145,47 @@ export const createFfmpegSession = ({
             return;
         }
         const pendingRequest = pending.get(reply.requestId)!;
+        if ('type' in reply) {
+            if (pendingRequest.operation !== 'transcodeAudio') {
+                terminate(
+                    'failed',
+                    new FfmpegError('protocol', 'Unexpected FFmpeg progress for a non-transcode request')
+                );
+                return;
+            }
+            try {
+                if (reply.type === 'chunk') pendingRequest.onChunk(reply.chunk);
+                else pendingRequest.onProgress(reply.progress);
+            } catch (error) {
+                pending.delete(reply.requestId);
+                pendingRequest.cleanup();
+                pendingRequest.reject(error);
+            }
+            return;
+        }
         pending.delete(reply.requestId);
         pendingRequest.cleanup();
         if (reply.ok) pendingRequest.resolve(reply.result);
         else pendingRequest.reject(new FfmpegError(reply.error.code, reply.error.message));
     }
 
-    const request = <T>(operation: WorkerRequestBody, signal?: AbortSignal): Promise<T> => {
+    const request = <T>(operation: SessionRequest, signal?: AbortSignal): Promise<T> => {
         if (worker === undefined || state === 'disposed' || state === 'failed') {
             return Promise.reject(new FfmpegError('disposed', 'The FFmpeg session is not available'));
         }
         if (signal?.aborted) return Promise.reject(abortError());
         const id = ++requestId;
-        const message: WorkerRequest = { sessionId, requestId: id, ...operation };
+        // Progress callbacks stay on the caller; only cloneable request data crosses the worker boundary.
+        const message: WorkerRequest =
+            operation.operation === 'transcodeAudio'
+                ? {
+                      sessionId,
+                      requestId: id,
+                      operation: 'transcodeAudio',
+                      input: operation.input,
+                      trackIndex: operation.trackIndex,
+                  }
+                : { sessionId, requestId: id, ...operation };
         return new Promise<T>((resolve, reject) => {
             const cancel = () => {
                 if (!pending.has(id)) return;
@@ -140,6 +198,9 @@ export const createFfmpegSession = ({
                 resolve: (value) => resolve(value as T),
                 reject,
                 cleanup,
+                ...(operation.operation === 'transcodeAudio'
+                    ? { operation: operation.operation, onProgress: operation.onProgress, onChunk: operation.onChunk }
+                    : { operation: operation.operation }),
             });
             signal?.addEventListener('abort', cancel, { once: true });
             if (signal?.aborted) cancel();
@@ -192,6 +253,12 @@ export const createFfmpegSession = ({
                 return Promise.reject(new FfmpegError('disposed', 'The FFmpeg session is not ready'));
             }
             return request({ operation: 'inspect' }, signal);
+        },
+        transcodeAudio: ({ input, trackIndex, signal, onProgress, onChunk }) => {
+            if (state !== 'ready') {
+                return Promise.reject(new FfmpegError('disposed', 'The FFmpeg session is not ready'));
+            }
+            return request<number>({ operation: 'transcodeAudio', input, trackIndex, onProgress, onChunk }, signal);
         },
     };
 

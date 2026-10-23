@@ -50,12 +50,37 @@ it('generates compiler inputs using the project runtime version independently of
         `ASB_STACK_BYTES=${config.limits.stackBytes}`,
     ]);
     const flags = (await readFile(join(output, 'ffmpeg-configure-args'), 'utf8')).trim().split('\n');
-    expect(flags).toEqual(expect.arrayContaining(['--disable-all', '--disable-autodetect', '--disable-pthreads']));
-    expect(
-        flags.some(
-            (flag) => flag.startsWith('--enable-') && !['--enable-cross-compile', '--enable-small'].includes(flag)
-        )
-    ).toBe(false);
+    expect(flags).toEqual(
+        expect.arrayContaining([
+            '--disable-all',
+            '--disable-autodetect',
+            '--disable-network',
+            '--disable-pthreads',
+            '--disable-iconv',
+        ])
+    );
+    expect(flags.filter((flag) => flag.startsWith('--enable-')).sort()).toEqual(
+        [
+            '--enable-cross-compile',
+            '--enable-small',
+            '--enable-avcodec',
+            '--enable-avformat',
+            '--enable-swresample',
+            '--enable-decoder=ac3',
+            '--enable-decoder=eac3',
+            '--enable-decoder=dca',
+            '--enable-decoder=truehd',
+            '--enable-decoder=mlp',
+            '--enable-libopus',
+            '--enable-encoder=libopus',
+            '--enable-demuxer=matroska',
+            '--enable-demuxer=mov',
+            '--enable-muxer=webm',
+            '--enable-parser=ac3',
+            '--enable-parser=dca',
+            '--enable-parser=mlp',
+        ].sort()
+    );
 });
 
 it.each([

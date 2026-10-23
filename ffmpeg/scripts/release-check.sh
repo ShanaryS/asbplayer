@@ -6,7 +6,7 @@ cd "$package_root"
 
 pnpm run verify:code
 pnpm run verify:candidate
-pnpm run test:native-wasm
+pnpm run test:media
 pnpm run verify:reproducible
 
 echo "FFmpeg release candidate passed all automated release checks"

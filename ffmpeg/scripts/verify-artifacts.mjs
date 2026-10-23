@@ -48,6 +48,9 @@ if (candidate) {
     ) {
         throw new Error('FFmpeg manifest does not match project.json and build-config.json');
     }
+    if (JSON.stringify(manifest.opus) !== JSON.stringify(config.opus)) {
+        throw new Error('Opus source does not match build-config.json');
+    }
     if (
         manifest.toolchain?.emscriptenVersion !== config.toolchain.emscriptenVersion ||
         manifest.toolchain.container !== config.toolchain.container ||
@@ -175,7 +178,7 @@ const wasmPath = resolve(destination, 'ffmpeg-core.wasm');
 const wasm = new WebAssembly.Module(await readFile(wasmPath));
 const exports = new Set(WebAssembly.Module.exports(wasm).map(({ name }) => name));
 const glue = await readFile(resolve(destination, 'ffmpeg-core.js'), 'utf8');
-for (const name of ['asb_runtime_info_json']) {
+for (const name of ['asb_runtime_info_json', 'asb_transcode_audio', 'asb_last_error']) {
     if (!exports.has(name) && !glue.includes('_' + name)) throw new Error('WASM export ' + name + ' is missing');
 }
 const imports = WebAssembly.Module.imports(wasm).map(({ module: namespace, name }) => namespace + '.' + name);

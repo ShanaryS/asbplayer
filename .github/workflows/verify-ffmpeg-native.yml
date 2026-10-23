@@ -41,6 +41,7 @@ jobs:
                         - 'ffmpeg/native/**'
                         - 'ffmpeg/package.json'
                         - 'ffmpeg/scripts/**'
+                        - 'ffmpeg/src/native.ts'
                         - 'pnpm-workspace.yaml'
                         - 'pnpm-lock.yaml'
 
@@ -54,7 +55,11 @@ jobs:
             - name: Setup Node.js and pnpm
               uses: ./.github/actions/setup-node-pnpm
             - run: pnpm install --frozen-lockfile
-            - run: pnpm --filter @project/ffmpeg run test:native-wasm
+            - name: Install media fixture tools
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y ffmpeg
+            - run: pnpm --filter @project/ffmpeg run test:media
 
     native-gate:
         name: native-gate

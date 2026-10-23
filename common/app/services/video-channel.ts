@@ -7,6 +7,8 @@ import type {
     AudioTrackModel,
     AudioTrackSelectedFromVideoMessage,
     AudioTrackSelectedToVideoMessage,
+    TranscodedAudioToVideoMessage,
+    AudioBufferedFromVideoMessage,
     CardTextFieldValues,
     CopyMessage,
     CopyToVideoMessage,
@@ -77,7 +79,8 @@ export default class VideoChannel {
         url: string | undefined,
         postMineAction: PostMineAction,
         id: string | undefined,
-        mediaTimestamp: number | undefined
+        mediaTimestamp: number | undefined,
+        miningAudioSnapshot: CopyMessage['miningAudioSnapshot']
     ) => void)[];
     private hideSubtitlePlayerToggleCallbacks: (() => void)[];
     private appBarToggleCallbacks: (() => void)[];
@@ -101,6 +104,8 @@ export default class VideoChannel {
     oncanplay: ((ev: Event) => void) | null = null;
     onTokenSelectionFocus: (() => void) | null = null;
     audioTracks?: AudioTrackModel[];
+    private audioConversionFailedCallbacks: (() => void)[] = [];
+    audioSeekableRange?: { readonly start: number; readonly end: number };
     selectedAudioTrack?: string;
     playModes: Set<PlayMode>;
     duration: number;
@@ -157,6 +162,14 @@ export default class VideoChannel {
                     for (const callback of this.readyCallbacks) {
                         callback(readyMessage.paused);
                     }
+                    break;
+                }
+                case 'audioConversionFailed': {
+                    for (const callback of this.audioConversionFailedCallbacks) callback();
+                    break;
+                }
+                case 'audioBuffered': {
+                    this.audioSeekableRange = (event.data as AudioBufferedFromVideoMessage).range;
                     break;
                 }
                 case 'readyState': {
@@ -258,7 +271,8 @@ export default class VideoChannel {
                             copyMessage.url,
                             copyMessage.postMineAction ?? PostMineAction.none,
                             copyMessage.id,
-                            copyMessage.mediaTimestamp
+                            copyMessage.mediaTimestamp,
+                            copyMessage.miningAudioSnapshot
                         );
                     }
                     break;
@@ -439,7 +453,8 @@ export default class VideoChannel {
             url: string | undefined,
             postMineAction: PostMineAction,
             id: string | undefined,
-            mediaTimestamp: number | undefined
+            mediaTimestamp: number | undefined,
+            miningAudioSnapshot: CopyMessage['miningAudioSnapshot']
         ) => void
     ) {
         this.copyCallbacks.push(callback);
@@ -530,6 +545,22 @@ export default class VideoChannel {
 
     audioTrackSelected(id: string) {
         const message: AudioTrackSelectedToVideoMessage = { command: 'audioTrackSelected', id: id };
+        this.protocol.postMessage(message);
+    }
+
+    onAudioConversionFailed(callback: () => void) {
+        this.audioConversionFailedCallbacks.push(callback);
+        return () => this._remove(callback, this.audioConversionFailedCallbacks);
+    }
+
+    transcodedAudio(audio: Blob | undefined, active: boolean, complete: boolean, required: boolean) {
+        const message: TranscodedAudioToVideoMessage = {
+            command: 'transcodedAudio',
+            required,
+            audio,
+            active,
+            complete,
+        };
         this.protocol.postMessage(message);
     }
 
@@ -866,6 +897,7 @@ export default class VideoChannel {
         this.protocol.postMessage({ command: 'close' });
         this.protocol.close();
         this.readyCallbacks = [];
+        this.audioConversionFailedCallbacks = [];
         this.playCallbacks = [];
         this.pauseCallbacks = [];
         this.playbackStateCallbacks = [];

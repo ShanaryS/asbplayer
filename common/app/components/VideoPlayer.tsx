@@ -1060,16 +1060,18 @@ export default function VideoPlayer({
             });
         });
 
-        window.onbeforeunload = () => {
+        const handlePageHide = () => {
             if (!poppingInRef.current) {
                 playerChannel.close();
             }
         };
+        window.addEventListener('pagehide', handlePageHide);
 
         setPlayerChannelSubscribed(true);
         playerChannel.playModes(playbackEngineRef.current?.playbackModes ?? new Set([PlayMode.normal]));
         asbTrace('playback/video-player', 'Player channel subscribed');
         return () => {
+            window.removeEventListener('pagehide', handlePageHide);
             asbTrace('playback/video-player', 'Closing player channel');
             playerChannel.close();
         };

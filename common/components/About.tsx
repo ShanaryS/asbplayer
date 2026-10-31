@@ -809,13 +809,6 @@ const dependencies: Dependency[] = [
         purpose: 'Subtitle parsing',
     },
     {
-        name: 'pgs-parser',
-        projectLink: 'https://github.com/killergerbah/pgs-parser',
-        license: 'MIT',
-        licenseLink: 'https://github.com/killergerbah/pgs-parser/blob/main/LICENSE.md',
-        purpose: 'Subtitle parsing',
-    },
-    {
         name: 'fast-xml-parser',
         projectLink: 'https://github.com/NaturalIntelligence/fast-xml-parser',
         license: 'MIT',

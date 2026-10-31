@@ -1,3 +1,4 @@
+import { plainSrtMimeType } from '@project/common/embedded-subtitles/embedded-subtitles';
 import { compile as parseAss } from 'ass-compiler';
 import SrtParser from '@qgustavor/srt-parser';
 import { subtitlesToSrt } from '@project/common/subtitle-reader/subtitles-to-srt';
@@ -169,8 +170,27 @@ export default class SubtitleReader {
         this._pgsWorkerFactory = pgsWorkerFactory;
     }
 
-    async subtitles(files: File[], flatten?: boolean) {
-        const allNodes = (await Promise.all(files.map((f, i) => this._subtitles(f, flatten === true ? 0 : i))))
+    async subtitles(
+        files: File[],
+        flatten?: boolean,
+        options: { signal?: AbortSignal; timelineOffsets?: number[] } = {}
+    ) {
+        const { signal, timelineOffsets } = options;
+        if (signal?.aborted) throw signal.reason;
+        const allNodes = (
+            await Promise.all(
+                files.map(async (file, index) => {
+                    const nodes = await this._subtitles(file, flatten === true ? 0 : index, signal);
+                    if (signal?.aborted) throw signal.reason;
+                    const offset = timelineOffsets?.[index] ?? 0;
+                    if (!Number.isFinite(offset)) throw new Error('Invalid subtitle timeline adjustment');
+                    if (offset === 0) return nodes;
+                    return nodes
+                        .filter((node) => node.end + offset > 0)
+                        .map((node) => ({ ...node, start: Math.max(0, node.start + offset), end: node.end + offset }));
+                })
+            )
+        )
             .flatMap((nodes) => nodes)
             .sort((n1, n2) => n1.start - n2.start);
 
@@ -207,7 +227,7 @@ export default class SubtitleReader {
         return a.start === b.start && a.end === b.end && a.text === b.text && a.track === b.track;
     }
 
-    async _subtitles(file: File, track: number): Promise<SubtitleNode[]> {
+    async _subtitles(file: File, track: number, signal?: AbortSignal): Promise<SubtitleNode[]> {
         if (file.name.endsWith('.srt') || file.name.endsWith('.subrip')) {
             const parser = new SrtParser({ numericTimestamps: true });
             const nodes = parser.fromSrt(await file.text());
@@ -215,7 +235,10 @@ export default class SubtitleReader {
                 return {
                     start: Math.floor((node.startTime as number) * 1000),
                     end: Math.floor((node.endTime as number) * 1000),
-                    text: this._filterText(node.text.replace(assOverrideTagRegex, '')),
+                    text:
+                        file.type === plainSrtMimeType
+                            ? this._filterText(node.text, true)
+                            : this._filterText(node.text.replace(assOverrideTagRegex, '')),
                     track: track,
                 };
             });
@@ -437,7 +460,7 @@ export default class SubtitleReader {
         }
 
         if (file.name.endsWith('.sup')) {
-            return this._parsePgs(file, track);
+            return this._parsePgs(file, track, signal);
         }
 
         if (file.name.endsWith('.nfimsc')) {
@@ -493,63 +516,73 @@ export default class SubtitleReader {
         throw new Error('Unsupported subtitle file format');
     }
 
-    private _parsePgs(file: File, track: number): Promise<SubtitleNode[]> {
+    private _parsePgs(file: File, track: number, signal?: AbortSignal): Promise<SubtitleNode[]> {
         const subtitles: SubtitleNode[] = [];
         return new Promise((resolve, reject) => {
             let worker: Worker | undefined;
-
+            let settled = false;
+            const cleanup = () => {
+                worker?.terminate();
+                signal?.removeEventListener('abort', abort);
+            };
+            const fail = (error: unknown) => {
+                if (settled) return;
+                settled = true;
+                cleanup();
+                reject(error);
+            };
+            const abort = () => fail(signal?.reason ?? new Error('Subtitle loading was aborted'));
+            if (signal?.aborted) {
+                abort();
+                return;
+            }
+            signal?.addEventListener('abort', abort, { once: true });
             void (async () => {
                 worker = await this._pgsWorkerFactory();
-                worker.onmessage = (e) => {
-                    void (async () => {
-                        switch (e.data.command) {
+                if (settled) {
+                    worker.terminate();
+                    return;
+                }
+                // FileReader conversions can outlast the worker's finished message. Keep message order
+                // and do not resolve until every image has its data URL.
+                let messages = Promise.resolve();
+                worker.onmessage = (event) => {
+                    messages = messages.then(async () => {
+                        if (settled) return;
+                        switch (event.data.command) {
                             case 'subtitle': {
-                                const subtitle = { ...e.data.subtitle, track };
-                                const imageBlob = e.data.imageBlob;
-                                subtitle.textImage.dataUrl = await this._blobToDataUrl(imageBlob);
-                                subtitles.push(subtitle);
+                                const subtitle = { ...event.data.subtitle, track };
+                                subtitle.textImage.dataUrl = await this._blobToDataUrl(event.data.imageBlob);
+                                if (!settled) subtitles.push(subtitle);
                                 break;
                             }
                             case 'finished':
-                                worker?.terminate();
+                                settled = true;
+                                cleanup();
                                 resolve(subtitles);
                                 break;
                             case 'error':
-                                worker?.terminate();
-                                reject(e.data.error);
+                                fail(event.data.error);
                                 break;
                         }
-                    })().catch((error) => {
-                        worker?.terminate();
-                        reject(error);
                     });
+                    void messages.catch(fail);
                 };
-                worker.onerror = (e) => {
-                    const error = e?.error ?? new Error('PGS decoding failed: ' + e?.message);
-                    reject(error);
-                    worker?.terminate();
-                };
-                const canvas = document.createElement('canvas');
-
-                const offscreenCanvas = canvas.transferControlToOffscreen();
-
-                // Node ReadableStream clashes with web ReadableStream
+                worker.onerror = (event) => fail(event?.error ?? new Error('PGS decoding failed: ' + event?.message));
+                const canvas = document.createElement('canvas').transferControlToOffscreen();
                 const fileStream = file.stream() as unknown as ReadableStream;
-                worker.postMessage({ fileStream, canvas: offscreenCanvas }, [fileStream, offscreenCanvas]);
-            })().catch((error) => {
-                worker?.terminate();
-                reject(error);
-            });
+                worker.postMessage({ fileStream, canvas }, [fileStream, canvas]);
+            })().catch(fail);
         });
     }
 
-    private _blobToDataUrl(blob: Blob) {
-        return new Promise((resolve) => {
+    private _blobToDataUrl(blob: Blob): Promise<string> {
+        return new Promise((resolve, reject) => {
             const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = () => reject(reader.error ?? new Error('Could not read subtitle image'));
+            reader.onabort = () => reject(new Error('Subtitle image conversion was aborted'));
             reader.readAsDataURL(blob);
-            reader.onloadend = () => {
-                resolve(reader.result);
-            };
         });
     }
     private _parseTtmlTimestamp(timestamp: string, tickRate?: number) {
@@ -854,7 +887,7 @@ export default class SubtitleReader {
         return this.xmlParser;
     }
 
-    private _filterText(text: string): string {
+    private _filterText(text: string, plainText = false): string {
         if (this._textFilter !== undefined) {
             const { regex, replacement } = this._textFilter;
 
@@ -871,6 +904,7 @@ export default class SubtitleReader {
             text = text.replace(regex, replacement).trim();
         }
 
+        if (plainText) return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
         if (this._removeXml) {
             text = removeSubtitleHtmlSafely(text);
         }

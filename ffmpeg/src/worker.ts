@@ -79,6 +79,26 @@ const handleRequest = async (request: WorkerRequest) => {
                 reply(request, { ok: true, result, diagnostics });
                 break;
             }
+            case 'extractSubtitles': {
+                if (
+                    !(request.input instanceof Blob) ||
+                    !Array.isArray(request.streamIndexes) ||
+                    request.streamIndexes.length === 0 ||
+                    request.streamIndexes.some((index) => !Number.isSafeInteger(index) || index < 0) ||
+                    new Set(request.streamIndexes).size !== request.streamIndexes.length
+                )
+                    throw new Error('Invalid subtitle extraction request');
+                const result = bridge.extractSubtitles(
+                    createInputReader(request.input, (slice) => new FileReaderSync().readAsArrayBuffer(slice)),
+                    request.streamIndexes,
+                    (streamIndex, chunk) => reply(request, { type: 'chunk', streamIndex, chunk }, [chunk]),
+                    (value) => {
+                        diagnostics = value;
+                    }
+                );
+                reply(request, { ok: true, result, diagnostics });
+                break;
+            }
             default:
                 reply(request, {
                     ok: false,

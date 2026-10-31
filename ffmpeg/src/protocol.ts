@@ -1,3 +1,8 @@
+export type ExtractedSubtitle = { streamIndex: number } & (
+    | { extension: 'srt'; mimeType: 'text/x-asbplayer-plain-srt'; timelineOffsetMs?: never }
+    | { extension: 'sup'; mimeType: 'application/x-pgs'; timelineOffsetMs: number }
+);
+
 export type FfmpegLibraryInfo = {
     name: string;
     version: number;
@@ -59,6 +64,7 @@ export type WorkerRequest = RequestBase &
     (
         | { operation: 'initialize'; coreURL: string; wasmURL: string }
         | { operation: 'inspect' }
+        | { operation: 'extractSubtitles'; input: Blob; streamIndexes: number[] }
         | {
               operation: 'transcodeAudio';
               input: Blob;
@@ -89,7 +95,7 @@ export type WorkerReply = {
 } & (
     | { ok: true; result: unknown; diagnostics: FfmpegDiagnostics }
     | { ok: false; error: { code: FfmpegErrorCode; message: string }; diagnostics: FfmpegDiagnostics }
-    | { type: 'chunk'; chunk: ArrayBuffer }
+    | { type: 'chunk'; chunk: ArrayBuffer; streamIndex?: number }
 );
 
 export type WorkerReplyBody = WorkerReply extends infer Reply
@@ -107,7 +113,9 @@ export const isWorkerReply = (value: unknown): value is WorkerReply => {
             reply.type === 'chunk' &&
             !('ok' in reply) &&
             reply.chunk instanceof ArrayBuffer &&
-            reply.chunk.byteLength > 0
+            reply.chunk.byteLength > 0 &&
+            (reply.streamIndex === undefined ||
+                (Number.isSafeInteger(reply.streamIndex) && (reply.streamIndex as number) >= 0))
         );
     }
     if (!isDiagnostics(reply.diagnostics)) return false;

@@ -1,3 +1,4 @@
+import { TextDecoder } from 'util';
 import { beforeAll, describe, expect, it, jest } from '@jest/globals';
 import {
     audioCodecDisplayName,
@@ -10,6 +11,7 @@ import { isoBmffAudioSampleFormats } from '@project/common/media-probe/iso-bmff'
 
 // jsdom's Blob does not implement arrayBuffer().
 beforeAll(() => {
+    Object.assign(globalThis, { TextDecoder });
     if (Blob.prototype.arrayBuffer === undefined) {
         Blob.prototype.arrayBuffer = function () {
             return new Promise((resolve, reject) => {

@@ -1,3 +1,13 @@
+import type {
+    FileSessionRecord,
+    FileSystemFileHandleWithId,
+} from '@project/common/file-system-access/file-system-access-repository';
+import {
+    subtitleSourceMatches,
+    plainSrtMimeType,
+    pgsMimeType,
+} from '@project/common/embedded-subtitles/embedded-subtitles';
+import type { EmbeddedSubtitleDescriptor } from '@project/common/embedded-subtitles/embedded-subtitles';
 /**
  * File System Access API helpers (Chrome-only).
  * Provides showOpenFilePicker-based file selection that returns FileSystemFileHandle objects,
@@ -5,10 +15,6 @@
  */
 
 import type { FileWithId } from '@project/common/file-selector';
-import type {
-    FileSessionRecord,
-    FileSystemFileHandleWithId,
-} from '@project/common/file-system-access/file-system-access-repository';
 import { v4 as uuidv4 } from 'uuid';
 
 export function supportsFileSystemAccess(): boolean {
@@ -74,20 +80,6 @@ export function canRestoreSession(record: FileSessionRecord | undefined): boolea
     );
 }
 
-/** Reconstruct playback slots after resolving the session's local handles. */
-export function restoreSessionFiles(record: FileSessionRecord, resolvedFiles: FileWithId[]): FileWithId[] {
-    const files = [...resolvedFiles, ...(record.cachedSubtitleFiles ?? [])];
-    if (record.subtitleTrackIds === undefined) return files;
-
-    const filesById = new Map(files.map((file) => [file.id, file]));
-    const subtitleFiles = record.subtitleTrackIds.map((id) => {
-        const file = filesById.get(id);
-        return id !== '-' && file !== undefined ? file : { id: '-', file: new File([], '.srt') };
-    });
-
-    return [...resolvedFiles.filter(({ id }) => id === record.videoHandle?.id), ...subtitleFiles];
-}
-
 export async function showFilePicker(extensions: {
     videoExtensions: string[];
     audioExtensions: string[];
@@ -118,4 +110,54 @@ export async function showFilePicker(extensions: {
         }
         throw e;
     }
+}
+
+/** Reconstruct slots only after all available embedded sources have been resolved. */
+export async function restoreSessionFiles(
+    record: FileSessionRecord,
+    resolvedFiles: FileWithId[],
+    extract?: (source: FileWithId, descriptors: EmbeddedSubtitleDescriptor[]) => Promise<Map<string, FileWithId>>
+) {
+    const video = resolvedFiles.find((file) => file.id === record.videoHandle?.id);
+    const files = new Map(resolvedFiles.map((file) => [file.id, file]));
+    // Files read from disk may have changed since the session was cached.
+    for (const file of record.cachedSubtitleFiles ?? []) if (!files.has(file.id)) files.set(file.id, file);
+    const missing: EmbeddedSubtitleDescriptor[] = [];
+    for (const [id, descriptor] of Object.entries(record.embeddedSubtitles ?? {})) {
+        if (!video || !subtitleSourceMatches(video, descriptor)) {
+            files.delete(id);
+            continue;
+        }
+        const cached = files.get(id);
+        if (
+            (descriptor.format === 'srt' && cached?.file.type === plainSrtMimeType) ||
+            (descriptor.format === 'sup' &&
+                cached?.file.type === pgsMimeType &&
+                Number.isFinite(descriptor.timelineOffsetMs))
+        )
+            files.set(id, { ...cached, embedded: descriptor });
+        else {
+            files.delete(id);
+            missing.push(descriptor);
+        }
+    }
+    if (video && missing.length > 0 && extract) {
+        try {
+            for (const [id, file] of await extract(video, missing)) files.set(id, file);
+        } catch {
+            /* Preserve unavailable slot positions and descriptors for a later retry. */
+        }
+    }
+    if (!record.subtitleTrackIds) return [...files.values()];
+    return [
+        ...(video ? [video] : []),
+        ...record.subtitleTrackIds.map(
+            (id) =>
+                (id === '-' ? undefined : files.get(id)) ?? {
+                    id: record.embeddedSubtitles?.[id] ? id : '-',
+                    embedded: record.embeddedSubtitles?.[id],
+                    file: new File([''], '.srt'),
+                }
+        ),
+    ];
 }

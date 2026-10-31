@@ -1,72 +1,32 @@
-import type { DisplaySet } from 'pgs-parser';
-import { parseDisplaySets } from 'pgs-parser';
+import { decodePgs } from '@project/common/subtitle-reader/pgs-decoder';
 
-function parse(fileStream: ReadableStream, canvas: OffscreenCanvas) {
-    let currentImageDisplaySet: DisplaySet | undefined;
-    let imageDataArray: Uint8ClampedArray | undefined;
-
-    void fileStream.pipeThrough(parseDisplaySets()).pipeTo(
-        new WritableStream<DisplaySet>({
-            close() {
-                postMessage({
-                    command: 'finished',
-                });
-            },
-            abort(error) {
-                postMessage({
-                    command: 'error',
-                    error,
-                });
-            },
-            async write(displaySet) {
-                if (displaySet.objectDefinitionSegments.length > 0) {
-                    if (currentImageDisplaySet === undefined) {
-                        currentImageDisplaySet = displaySet;
-                    }
-                } else if (currentImageDisplaySet !== undefined) {
-                    const screenWidth = currentImageDisplaySet.presentationCompositionSegment.width;
-                    const screenHeight = currentImageDisplaySet.presentationCompositionSegment.height;
-                    imageDataArray =
-                        imageDataArray === undefined || imageDataArray.length < screenHeight * screenWidth * 4
-                            ? new Uint8ClampedArray(screenWidth * screenHeight * 4)
-                            : imageDataArray;
-                    const imageData = currentImageDisplaySet.imageData(imageDataArray);
-                    canvas.width = imageData.width;
-                    canvas.height = imageData.height;
-                    const context = canvas.getContext('2d')!;
-                    context.putImageData(imageData, 0, 0);
-                    postMessage({
-                        command: 'subtitle',
-                        imageBlob: await canvas.convertToBlob({ type: 'image/png' }),
-                        subtitle: {
-                            start: currentImageDisplaySet.objectDefinitionSegments[0].header.presentationTimestamp / 90,
-                            end: displaySet.endDefinitionSegment.header.presentationTimestamp / 90,
-                            text: '',
-                            textImage: {
-                                image: {
-                                    width: imageData.width,
-                                    height: imageData.height,
-                                },
-                                screen: {
-                                    width: currentImageDisplaySet.presentationCompositionSegment.width,
-                                    height: currentImageDisplaySet.presentationCompositionSegment.height,
-                                },
-                            },
-                        },
-                    });
-
-                    currentImageDisplaySet = undefined;
-                }
-            },
-        })
-    );
+async function parse(fileStream: ReadableStream<Uint8Array>, canvas: OffscreenCanvas) {
+    try {
+        for await (const image of decodePgs(fileStream)) {
+            canvas.width = image.width;
+            canvas.height = image.height;
+            const context = canvas.getContext('2d');
+            if (!context) throw new Error('Could not create subtitle image canvas');
+            context.putImageData(new ImageData(image.pixels, image.width, image.height), 0, 0);
+            postMessage({
+                command: 'subtitle',
+                imageBlob: await canvas.convertToBlob({ type: 'image/png' }),
+                subtitle: {
+                    start: image.start,
+                    end: image.end,
+                    text: '',
+                    textImage: { image: { width: image.width, height: image.height }, screen: image.screen },
+                },
+            });
+        }
+        postMessage({ command: 'finished' });
+    } catch (error) {
+        postMessage({ command: 'error', error });
+    }
 }
-
 export function onMessage() {
-    onmessage = async (e: MessageEvent) => {
-        const { fileStream, canvas } = e.data;
-        parse(fileStream, canvas);
+    onmessage = (event: MessageEvent) => {
+        void parse(event.data.fileStream, event.data.canvas);
     };
 }
-
 onMessage();

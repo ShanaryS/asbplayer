@@ -63,3 +63,7 @@ export const webAudioTranscodeHost: AudioTranscodeHost = {
     supportsAudioPlayback: () => document.createElement('audio').canPlayType(webmOpusMimeType) !== '',
     createSession: createWebFfmpegSession,
 };
+
+export const webSubtitleHost = {
+    createSession: createWebFfmpegSession,
+};

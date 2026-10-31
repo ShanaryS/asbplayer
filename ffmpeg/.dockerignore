@@ -14,3 +14,6 @@
 !scripts/runtime-smoke.mjs
 !scripts/runtime-audio.mjs
 !scripts/opus-pkg-config.sh
+!scripts/runtime-subtitles.mjs
+!scripts/subtitle-test-media.mjs
+!scripts/pgs-test-data.cjs

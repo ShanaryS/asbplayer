@@ -77,6 +77,20 @@ export const useFileSession = () => {
         await fileSessionRepository?.clearBuffered();
     }, [fileSessionRepository]);
 
+    const saveSubtitleSelection = useCallback(
+        async (files: FileWithId[]) => {
+            if (!fileSessionRepository) return;
+            await fileSessionRepository.setCachedSubtitleFiles(files, {
+                subtitleTrackIds: files.map((file) => file.id),
+                embeddedSubtitles: Object.fromEntries(
+                    files.filter((file) => file.embedded).map((file) => [file.id, file.embedded!])
+                ),
+            });
+            setCanRestoreLastSession(true);
+        },
+        [fileSessionRepository]
+    );
+
     const saveCachedSubtitleFilesToSession = useCallback(
         async (files: FileWithId[]) => {
             const didSave = await fileSessionRepository?.setCachedSubtitleFiles(files);
@@ -99,6 +113,7 @@ export const useFileSession = () => {
     );
 
     return {
+        saveSubtitleSelection,
         canRestoreLastSession,
         saveSession,
         fetchSession,

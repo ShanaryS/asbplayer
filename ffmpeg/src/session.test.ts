@@ -843,3 +843,104 @@ describe('FFmpeg session', () => {
         expect(worker.terminate).toHaveBeenCalledTimes(1);
     });
 });
+
+describe('embedded subtitle operations', () => {
+    const result = (worker: FakeWorker, value: unknown) => {
+        const request = worker.messages.at(-1)!;
+        worker.target.dispatchEvent(
+            new MessageEvent('message', {
+                data: {
+                    sessionId: request.sessionId,
+                    requestId: request.requestId,
+                    ok: true,
+                    result: value,
+                    diagnostics: { messages: [], omittedMessages: 0 },
+                },
+            })
+        );
+    };
+    const ready = async () => {
+        const worker = new FakeWorker();
+        const session = createFfmpegSession({
+            prepareAssets: async () => preparedAssets(),
+            workerFactory: () => worker,
+            onDiagnostics: () => {},
+        });
+        const runtime = await session.load();
+        worker.autoReply = false;
+        return { worker, session, runtime };
+    };
+    it('deduplicates global stream indexes and requires completion for empty outputs', async () => {
+        const { worker, runtime } = await ready();
+        const chunks: Array<[number, number]> = [];
+        const extraction = runtime.extractSubtitles({
+            input: new Blob(['video']),
+            streamIndexes: [5, 2, 5],
+            onChunk: (index, bytes) => chunks.push([index, bytes.byteLength]),
+        });
+        const request = worker.messages.at(-1)!;
+        expect(request).toMatchObject({ operation: 'extractSubtitles', streamIndexes: [5, 2] });
+        worker.target.dispatchEvent(
+            new MessageEvent('message', {
+                data: {
+                    sessionId: request.sessionId,
+                    requestId: request.requestId,
+                    type: 'chunk',
+                    streamIndex: 5,
+                    chunk: new ArrayBuffer(3),
+                },
+            })
+        );
+        const outputs = [5, 2].map((streamIndex) => ({
+            streamIndex,
+            extension: 'srt',
+            mimeType: 'text/x-asbplayer-plain-srt',
+        }));
+        result(worker, outputs);
+        await expect(extraction).resolves.toEqual(outputs);
+        expect(chunks).toEqual([[5, 3]]);
+        const incomplete = runtime.extractSubtitles({
+            input: new Blob(['video']),
+            streamIndexes: [5, 2],
+            onChunk: () => {},
+        });
+        result(worker, outputs.slice(0, 1));
+        await expect(incomplete).rejects.toMatchObject({ code: 'protocol' });
+    });
+    it('rejects output routed to an unrequested stream', async () => {
+        const { worker, runtime } = await ready();
+        const extraction = runtime.extractSubtitles({
+            input: new Blob(['video']),
+            streamIndexes: [2],
+            onChunk: () => {},
+        });
+        const request = worker.messages.at(-1)!;
+        worker.target.dispatchEvent(
+            new MessageEvent('message', {
+                data: {
+                    sessionId: request.sessionId,
+                    requestId: request.requestId,
+                    type: 'chunk',
+                    streamIndex: 0,
+                    chunk: new ArrayBuffer(1),
+                },
+            })
+        );
+        await expect(extraction).rejects.toMatchObject({ code: 'protocol' });
+    });
+    it('accepts image outputs with an explicit timeline adjustment and rejects missing or invalid adjustments', async () => {
+        const { worker, runtime } = await ready();
+        const input = new Blob(['video']);
+        for (const timelineOffsetMs of [0, -1000, 50001000]) {
+            const extraction = runtime.extractSubtitles({ input, streamIndexes: [3], onChunk: () => {} });
+            const output = { streamIndex: 3, extension: 'sup', mimeType: 'application/x-pgs', timelineOffsetMs };
+            result(worker, [output]);
+            await expect(extraction).resolves.toEqual([output]);
+        }
+        for (const timelineOffsetMs of [undefined, NaN, Infinity]) {
+            const extraction = runtime.extractSubtitles({ input, streamIndexes: [3], onChunk: () => {} });
+            result(worker, [{ streamIndex: 3, extension: 'sup', mimeType: 'application/x-pgs', timelineOffsetMs }]);
+            await expect(extraction).rejects.toMatchObject({ code: 'protocol' });
+        }
+    });
+});

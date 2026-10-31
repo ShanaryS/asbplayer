@@ -2,24 +2,35 @@ import { useEffect, useState } from 'react';
 import { asbTrace } from '@project/common/util/log';
 
 const videoLoadNoticeDelayMs = 3_000;
-const conversionNoticeDurationMs = 5_000;
+const conversionNoticeLimitMs = 10_000;
 const delayedNoticeMinimumDurationMs = 7_000;
 
 /**
- * Detect slow startup and retain its notice until both the first frame and the minimum duration.
- * From loadstart, conversion notices expire at 5s, or 10s when startup is slow.
- * Conversion completion does not change that deadline.
+ * Detect slow startup at 3s and retain its notice until both the first frame and the 7s minimum.
+ * Conversion notices appear after 3s and end at completion or 10s, independently of video readiness.
  */
 export const useVideoLoadNotifications = ({
     video,
     source,
     conversionActive,
+    conversionReady = false,
 }: {
     video: HTMLVideoElement | undefined;
     source: string;
-    /** Includes completed conversion so its notice can keep the same display deadline. */
     conversionActive: boolean;
+    conversionReady?: boolean;
 }) => {
+    const [conversionSource, setConversionSource] = useState<string>();
+    useEffect(() => {
+        setConversionSource(undefined);
+        if (!source || !conversionActive || conversionReady) return;
+        const delay = setTimeout(() => setConversionSource(source), videoLoadNoticeDelayMs);
+        const deadline = setTimeout(() => setConversionSource(undefined), conversionNoticeLimitMs);
+        return () => {
+            clearTimeout(delay);
+            clearTimeout(deadline);
+        };
+    }, [source, conversionActive, conversionReady]);
     const [load, setLoad] = useState<{
         video: HTMLVideoElement;
         source: string;
@@ -59,7 +70,6 @@ export const useVideoLoadNotifications = ({
             noticeDeadlineReached = false;
             update();
             if (video.error) return;
-            noticeTimer = setTimeout(expireNotices, conversionNoticeDurationMs);
             if (ready) return;
             delayTimer = setTimeout(() => {
                 if (video.error || video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
@@ -96,6 +106,11 @@ export const useVideoLoadNotifications = ({
     const current = load?.video === video && load?.source === source && !load?.failed;
     return {
         loading: Boolean(current && load?.delayed && (!load.ready || !load.noticeDeadlineReached)),
-        conversion: Boolean(current && conversionActive && !load?.noticeDeadlineReached),
+        conversion: Boolean(
+            conversionSource === source &&
+                conversionActive &&
+                !conversionReady &&
+                !(load?.video === video && load?.source === source && load?.failed)
+        ),
     };
 };

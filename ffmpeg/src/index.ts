@@ -22,3 +22,5 @@ export type {
     FfmpegRuntimeInfo,
     WorkerRequest,
 } from '@project/ffmpeg/protocol';
+
+export type { ExtractedSubtitle } from '@project/ffmpeg/protocol';

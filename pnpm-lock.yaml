@@ -409,9 +409,6 @@ importers:
       lamejs:
         specifier: 1.2.0
         version: 1.2.0(patch_hash=fefa3255ad0ee7360366074e02b2ac9285256e003fdbb1f5481a251a08ecf66c)
-      pgs-parser:
-        specifier: 0.1.0
-        version: 0.1.0
       react:
         specifier: ^19.1.0
         version: 19.1.0
@@ -7792,9 +7789,6 @@ packages:
 
   perfect-debounce@2.1.0:
     resolution: {integrity: sha512-LjgdTytVFXeUgtHZr9WYViYSM/g8MkcTPYDlPa3cDqMirHjKiSZPYd6DoL7pK8AJQr+uWkQvCjHNdiMqsrJs+g==}
-
-  pgs-parser@0.1.0:
-    resolution: {integrity: sha512-CmNdZsRFQeogcRMsGFq3hmL/hy8KjGQrZdFcgkTNwm28KUIxRfTJLN4h2X9DupkhNgLVtDRJQD/aJuQFq5tlHg==}
 
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
@@ -19410,8 +19404,6 @@ snapshots:
   pend@1.2.0: {}
 
   perfect-debounce@2.1.0: {}
-
-  pgs-parser@0.1.0: {}
 
   picocolors@1.1.1: {}
 

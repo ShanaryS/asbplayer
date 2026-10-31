@@ -1,6 +1,6 @@
 # Using the FFmpeg runtime
 
-The runtime exposes inspection and `transcodeAudio`, using `libavutil`, `libavcodec`, `libavformat`, `libswresample`, and Opus for audio conversion. See [building and verifying FFmpeg](build.md) for developing a candidate, and [releasing and selecting a runtime](release.md) for choosing the app's published version.
+The source runtime exposes inspection, audio conversion, and embedded text and PGS subtitle discovery/extraction. It links `libavutil`, `libavcodec`, `libavformat` and `libswresample`, with libopus and zlib. See [embedded subtitles](subtitles.md) for supported formats and local candidate checks. See [building and verifying FFmpeg](build.md) for developing a candidate, and [releasing and selecting a runtime](release.md) for choosing the app's published version.
 
 ## Version compatibility
 
@@ -33,11 +33,11 @@ A session obtains a verified compressed archive through the [download and cache 
 
 This works before service-worker control and when persistent storage is unavailable. Unpacking takes milliseconds compared to WASM compilation and media work. A Content Security Policy must allow Blob workers, module imports, and WASM fetches.
 
-The owner's signal or `dispose()` stops shared downloads and terminates the worker, including synchronous native work. Disposal/failure releases executable URLs. Create a fresh session to retry. A signal passed to `load({ signal })` or `inspect({ signal })` cancels only that caller's wait. Initialization has no timeout.
+The owner's signal or `dispose()` stops shared downloads and terminates the worker, including synchronous native work. Disposal/failure releases executable URLs. Create a fresh session to retry. A signal passed to `load({ signal })`, `inspect({ signal })` or a media operation cancels only that caller's wait; abort the owner to terminate native execution. Initialization has no timeout.
 
 ## Reading input files
 
-[`createInputReader(fileOrBlob, readSlice)`](../src/input-reader.ts) provides synchronous worker-side random access through bounded slices, with a fixed 64 KiB maximum per read and 4 MiB read-ahead. The worker supplies synchronous slice reads through `FileReaderSync`. It preserves safe integer offsets above 4 GiB, clips reads at EOF, and rejects invalid ranges without copying the entire file into WASM. The audio transcoder connects this reader to FFmpeg through the AVIO adapters in `host_io.hpp` and streams encoded WebM/Opus chunks back to the host.
+[`createInputReader(fileOrBlob, readSlice)`](../src/input-reader.ts) provides synchronous worker-side random access through bounded slices, with a fixed 64 KiB maximum per read and 4 MiB read-ahead. The worker supplies synchronous slice reads through `FileReaderSync`. It preserves safe integer offsets above 4 GiB, clips reads at EOF, and rejects invalid ranges without copying the entire file into WASM. The native AVIO adapters in `host_io.hpp` use this reader for audio and subtitle work. The audio transcoder streams encoded WebM/Opus chunks back to the host.
 
 ## From feature requests to native FFmpeg
 
@@ -46,4 +46,12 @@ The owner's signal or `dispose()` stops shared downloads and terminates the work
 3. **Dispatch operations.** Feature requests pass through the session using message types from [protocol.ts](../src/protocol.ts). The worker validates session identity and dispatches operations. Substantial operations get handler functions in `worker.ts`; request validation, replies, and error handling remain centralized.
 4. **Call native code and reply.** [native.ts](../src/native.ts) owns JavaScript/WASM interop and calls the C API declared in [asb_ffmpeg.h](../native/asb_ffmpeg.h), implemented by [runtime.cpp](../native/runtime.cpp). The worker sends the result or error back, and the session resolves or rejects the feature's pending Promise.
 
-The native build compiles only `runtime.cpp`, which contains the three C exports called by TypeScript and the JavaScript I/O bindings. Private implementation headers keep runtime inspection in `runtime_info.hpp`, error storage and formatting in `error.hpp`, AVIO adapters in `host_io.hpp`, and audio conversion in `audio_transcoder.hpp`. The transcoder owns its FFmpeg resources and processing stages together.
+The native build compiles only `runtime.cpp`, which exposes inspection, errors, audio conversion and the two subtitle operations to TypeScript. Private implementation headers keep runtime inspection in `runtime_info.hpp`, error storage and formatting in `error.hpp`, JavaScript/AVIO adapters in `host_io.hpp`, audio conversion in `audio_transcoder.hpp`, and subtitle discovery/extraction in `subtitles.hpp`. The transcoder owns its FFmpeg resources and processing stages together.
+
+## Subtitle identity and output
+
+JavaScript container readers discover subtitle streams without loading this runtime. `extractSubtitles({ input, streamIndexes, onChunk })` uses global stream indexes from that catalog, emits `(streamIndex, ArrayBuffer)` chunks, and returns one output descriptor per unique requested stream, including valid empty outputs. Collect chunks into per-track Blobs outside WASM. Text outputs use `extension: "srt"` and `mimeType: "text/x-asbplayer-plain-srt"`. PGS outputs use `extension: "sup"`, `mimeType: "application/x-pgs"` and a finite `timelineOffsetMs` that consumers must save and apply once to decoded SUP cue times. Audio conversion continues to use its separate audio-ordinal `trackIndex` contract.
+
+The app's subtitle coordinator owns a separate session from audio conversion, serializes subtitle operations, and disposes each worker after completion. Catalogs and extracted Files remain in app memory while the source is loaded. Closing the selector aborts native work but retains completed results for reopening.
+
+Native diagnostics for audio conversion, subtitle discovery, and subtitle extraction are bounded and collected per operation. They accompany the terminal success or failure reply through the session's `onDiagnostics` callback; output chunks remain separate. The web host writes them through the configured app logger.

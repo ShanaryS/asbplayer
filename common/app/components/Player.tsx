@@ -31,6 +31,7 @@ import { HoveredToken, SubtitleAnnotations } from '@project/common/annotations';
 import type { SubtitleReader } from '@project/common/subtitle-reader';
 import type { KeyBinder } from '@project/common/key-binder';
 import { asbTrace } from '@project/common/util/log';
+import { subtitleOffsetUpdate } from '@project/common/util/subtitle-offset';
 import {
     clampMediaTimestamp,
     download,
@@ -151,6 +152,7 @@ export interface MediaSources {
 
 interface PlayerProps {
     audioTranscodeHost?: AudioTranscodeHost;
+    onMediaReady?: () => void;
     sources?: MediaSources;
     subtitles: DisplaySubtitleModel[];
     mediaId?: string;
@@ -212,6 +214,7 @@ function PlayerComponent(
     {
         sources,
         audioTranscodeHost,
+        onMediaReady,
         subtitles,
         mediaId,
         subtitleReader,
@@ -690,25 +693,8 @@ function PlayerComponent(
     const applyOffset = useCallback(
         (offset: number, forwardToVideo: boolean) => {
             setOffset(offset);
-            if (!subtitles) {
-                return;
-            }
-
-            const length = subtitles.length > 0 ? subtitles[subtitles.length - 1].end + offset : 0;
-
-            const newSubtitles = subtitles.map((s, i) => ({
-                text: s.text,
-                textImage: s.textImage,
-                start: s.originalStart + offset,
-                originalStart: s.originalStart,
-                end: s.originalEnd + offset,
-                originalEnd: s.originalEnd,
-                displayTime: timeDurationDisplay(s.originalStart + offset, length),
-                displayEndTime: timeDurationDisplay(s.originalEnd + offset, length),
-                track: s.track,
-                index: i,
-                tokenization: s.tokenization,
-            }));
+            const update = subtitleOffsetUpdate(offset);
+            onSubtitles(update);
 
             if (forwardToVideo) {
                 if (channel !== undefined) {
@@ -716,14 +702,14 @@ function PlayerComponent(
 
                     // Older versions of extension don't support the offset message
                     if (tab !== undefined && extension.installed && !extension.supportsOffsetMessage) {
-                        channel.subtitles(newSubtitles, subtitleFiles?.map((f) => f.file.name) ?? ['']);
+                        const newSubtitles = update(subtitlesRef.current);
+                        if (newSubtitles)
+                            channel.subtitles(newSubtitles, subtitleFiles?.map((f) => f.file.name) ?? ['']);
                     }
                 }
             }
-
-            onSubtitles(newSubtitles);
         },
-        [subtitleFiles, subtitles, extension, tab, channel, onSubtitles]
+        [subtitleFiles, extension, tab, channel, onSubtitles]
     );
     applyOffsetRef.current = applyOffset;
 
@@ -787,6 +773,7 @@ function PlayerComponent(
     }, [channel, videoFrameRef]);
 
     useEffect(() => {
+        const controller = new AbortController();
         async function init() {
             asbTrace('playback/player', 'Loading player subtitles', {
                 subtitleFileCount: subtitleFiles?.length ?? 0,
@@ -801,8 +788,13 @@ function PlayerComponent(
                 try {
                     const nodes = await subtitleReader.subtitles(
                         subtitleFiles.map((f) => f.file),
-                        flattenSubtitleFiles
+                        flattenSubtitleFiles,
+                        {
+                            signal: controller.signal,
+                            timelineOffsets: subtitleFiles.map((file) => file.embedded?.timelineOffsetMs ?? 0),
+                        }
                     );
+                    if (controller.signal.aborted) return;
                     const length = nodes.length > 0 ? nodes[nodes.length - 1].end + offset : 0;
 
                     subtitles = nodes.map((s, i) => ({
@@ -826,20 +818,30 @@ function PlayerComponent(
                     });
                     onSubtitles(subtitles);
                 } catch (e) {
+                    if (controller.signal.aborted) return;
                     asbTrace('playback/player', 'Failed to load player subtitles', { error: e });
                     onError(e);
                     onSubtitles([]);
                 } finally {
-                    setLoadingSubtitles(false);
+                    if (!controller.signal.aborted) setLoadingSubtitles(false);
                 }
             } else {
-                subtitles = undefined;
+                setLoadingSubtitles(false);
+                if (subtitleFiles !== undefined) {
+                    setSubtitlesSentThroughChannel(false);
+                    onSubtitles([]);
+                }
             }
         }
 
         void init()
-            .then(() => onLoaded(subtitleFiles?.map((f) => f.file) ?? []))
-            .catch(onError);
+            .then(() => {
+                if (!controller.signal.aborted) onLoaded(subtitleFiles?.map((f) => f.file) ?? []);
+            })
+            .catch((error) => {
+                if (!controller.signal.aborted) onError(error);
+            });
+        return () => controller.abort();
     }, [subtitleReader, onLoaded, onError, subtitleFiles, flattenSubtitleFiles, onSubtitles]);
 
     useEffect(() => {
@@ -1032,6 +1034,7 @@ function PlayerComponent(
             }),
         [channel, subtitles, videoFile]
     );
+    useEffect(() => channel?.onReady(() => onMediaReady?.()), [channel, onMediaReady]);
     useEffect(() => {
         if (
             channel === undefined ||

@@ -10,6 +10,11 @@ const nativeModule = (run: (module: NativeModule) => number): NativeModule => {
         _asb_runtime_info_json: () => 0,
         _asb_last_error: () => 0,
         _asb_transcode_audio: () => run(module),
+        _asb_extract_subtitles: () => 0,
+        _malloc: () => 0,
+        _free: () => {},
+        stringToUTF8: () => {},
+        lengthBytesUTF8: (value) => new TextEncoder().encode(value).length,
         asbReadInput: undefined,
         asbWriteOutput: undefined,
         asbDiagnostic: undefined,
@@ -18,6 +23,71 @@ const nativeModule = (run: (module: NativeModule) => number): NativeModule => {
 };
 
 const input = { size: 1, readAt: () => new Uint8Array([1]) };
+
+it.each(['_asb_extract_subtitles', '_malloc', '_free', 'stringToUTF8', 'lengthBytesUTF8'] as const)(
+    'rejects a runtime missing %s during bridge initialization',
+    (name) => {
+        const module = nativeModule(() => 1);
+        Reflect.deleteProperty(module, name);
+        expect(() => NativeBridge.create(module)).toThrow(`Native export ${name} is missing`);
+    }
+);
+
+it('preserves subtitle results and diagnostics when the sink throws', () => {
+    const reports: FfmpegDiagnostics[] = [];
+    const module = nativeModule(() => 1);
+    module.HEAPU8 = new Uint8Array(64);
+    module.UTF8ToString = () => '[]';
+    const run = () => {
+        module.asbDiagnostic!('ffmpeg', 'warning', 'Subtitle warning');
+        return 1;
+    };
+    module._asb_extract_subtitles = run;
+    module._malloc = () => 8;
+    module._free = () => {};
+    module.lengthBytesUTF8 = (value) => value.length;
+    module.stringToUTF8 = (value, pointer) => module.HEAPU8.set(new TextEncoder().encode(value), pointer);
+    const bridge = NativeBridge.create(module);
+    const onDiagnostics = (report: FfmpegDiagnostics) => {
+        reports.push(report);
+        throw new Error('Logging failed');
+    };
+    const result = bridge.extractSubtitles(input, [2], () => {}, onDiagnostics);
+    expect(result).toEqual([]);
+    expect(reports).toEqual([
+        {
+            messages: [{ source: 'ffmpeg', level: 'warning', message: 'Subtitle warning', occurrences: 1 }],
+            omittedMessages: 0,
+        },
+    ]);
+    expect(module.asbDiagnostic).toBeUndefined();
+    expect(module.asbReadInput).toBeUndefined();
+    expect(module.asbWriteSubtitleOutput).toBeUndefined();
+});
+
+it('retains native subtitle failures and their diagnostics when reporting fails', () => {
+    const reports: FfmpegDiagnostics[] = [];
+    const module = nativeModule(() => 1);
+    module._malloc = () => 8;
+    module._asb_extract_subtitles = () => {
+        module.asbDiagnostic!('ffmpeg', 'error', 'Invalid subtitle container');
+        return 0;
+    };
+    const bridge = NativeBridge.create(module);
+    expect(() =>
+        bridge.extractSubtitles(
+            input,
+            [2],
+            () => {},
+            (report) => {
+                reports.push(report);
+                throw new Error('Logging failed');
+            }
+        )
+    ).toThrow('Native decoder failed');
+    expect(reports[0].messages[0].message).toBe('Invalid subtitle container');
+    expect(module.asbDiagnostic).toBeUndefined();
+});
 
 it('buffers recent diagnostics, folds repeats, and bounds both message count and text', () => {
     const reports: FfmpegDiagnostics[] = [];

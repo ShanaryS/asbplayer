@@ -1,6 +1,9 @@
 import Button from '@mui/material/Button';
 import CircularProgress from '@mui/material/CircularProgress';
 import CloseIcon from '@mui/icons-material/Close';
+import MovieOutlinedIcon from '@mui/icons-material/MovieOutlined';
+import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
+import CloudDownloadOutlinedIcon from '@mui/icons-material/CloudDownloadOutlined';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -130,10 +133,11 @@ export const useVideoDataSyncDialogState = (files?: FileWithId[]) => {
         (candidates?: FileWithId[]) => {
             if (candidates !== undefined) {
                 const loadedTracks = new Map<string, VideoDataSubtitleTrack>();
-                for (const { file, id } of candidates) {
+                for (const { file, id, embedded } of candidates) {
                     if (id === '-') continue;
                     loadedTracks.set(id, {
                         id,
+                        embedded,
                         label: file.name,
                         file,
                         extension: file.name.substring(file.name.lastIndexOf('.') + 1),
@@ -176,6 +180,7 @@ interface Props {
     open: boolean;
     disabled: boolean;
     isLoading: boolean;
+    discovering?: boolean;
     // The video name automatically supplied by asbplayer's content script
     // Not to be confused with the auto-calculated video name when user selects a subtitle track
     suggestedName: string;
@@ -211,6 +216,7 @@ export default function VideoDataSyncDialog({
     open,
     disabled,
     isLoading,
+    discovering,
     suggestedName,
     subtitleTracks,
     selectedSubtitleTrackIds,
@@ -309,6 +315,7 @@ export default function VideoDataSyncDialog({
                 const subtitle = subtitleTracks.find((subtitle) => subtitle.id === selected);
                 if (subtitle) {
                     const { file, label } = subtitle;
+                    if (subtitle.disabledReason) return undefined;
                     const trackName =
                         file !== undefined
                             ? // Remove extension. The content script will add it back when rendering the file name on top of the video.
@@ -351,17 +358,36 @@ export default function VideoDataSyncDialog({
                                 setFocusOkAfterFileSelection(true);
                             }}
                         >
-                            {subtitleTracks.map((subtitle) => (
-                                <MenuItem value={subtitle.id} key={subtitle.id}>
-                                    {subtitle.label}
-                                </MenuItem>
-                            ))}
+                            {[
+                                ...subtitleTracks.filter((track) => !track.embedded),
+                                ...subtitleTracks.filter((track) => track.embedded),
+                            ].map((subtitle) => {
+                                let Icon = DescriptionOutlinedIcon;
+                                if (subtitle.embedded) {
+                                    Icon = MovieOutlinedIcon;
+                                } else if (subtitle.url || /^https?:/.test(subtitle.id)) {
+                                    Icon = CloudDownloadOutlinedIcon;
+                                }
+                                return (
+                                    <MenuItem
+                                        value={subtitle.id}
+                                        key={subtitle.id}
+                                        disabled={!!subtitle.disabledReason}
+                                    >
+                                        {subtitle.id !== '-' && (
+                                            <Icon fontSize="small" sx={{ mr: 1, verticalAlign: 'middle' }} />
+                                        )}
+                                        {subtitle.label}
+                                        {subtitle.disabledReason ? ` — ${subtitle.disabledReason}` : ''}
+                                    </MenuItem>
+                                );
+                            })}
                             <MenuItem onClick={() => handleOpenFile(i)}>{t('action.openFiles')}</MenuItem>
                             <MenuItem onClick={() => handleOpenOnline(i)}>
                                 {t('onlineSubtitleSources.searchOnlineSubtitles')}
                             </MenuItem>
                         </TextField>
-                        {isLoading && (
+                        {(isLoading || discovering) && (
                             <span className={classes.spinner}>
                                 <CircularProgress size={20} color="primary" />
                             </span>
@@ -407,7 +433,10 @@ export default function VideoDataSyncDialog({
 
             setFocusOkAfterFileSelection(true);
 
-            if (fileInputTrackNumber === undefined) {
+            if (
+                fileInputTrackNumber === undefined ||
+                files.some(({ file }) => /\.(mkv|mp4|m4v|avi|webm|mp3|m4a|aac|flac|ogg|wav|opus|m4b)$/i.test(file.name))
+            ) {
                 onOpenFiles(files);
             } else {
                 const fileTracks: VideoDataSubtitleTrack[] = [...files].map((fileWithId) => {
@@ -655,7 +684,13 @@ export default function VideoDataSyncDialog({
                     </Button>
                     <Button
                         action={okActionRef}
-                        disabled={(!hideVideoNameTextField && !trimmedName) || disabled}
+                        disabled={
+                            (!hideVideoNameTextField && !trimmedName) ||
+                            disabled ||
+                            selectedSubtitleTrackIds.some(
+                                (id) => !subtitleTracks.some((track) => track.id === id && !track.disabledReason)
+                            )
+                        }
                         onClick={handleOkButtonClick}
                     >
                         {t('action.ok')}

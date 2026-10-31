@@ -11,8 +11,8 @@ let video: HTMLVideoElement | undefined;
 let readyState: number;
 let error: MediaError | null;
 
-const Harness = ({ source = 'blob:video', conversionActive = false }) => {
-    const notices = useVideoLoadNotifications({ video, source, conversionActive });
+const Harness = ({ source = 'blob:video', conversionActive = false, conversionReady = false }) => {
+    const notices = useVideoLoadNotifications({ video, source, conversionActive, conversionReady });
     return <output data-loading={notices.loading} data-conversion={notices.conversion} />;
 };
 const render = async (props = {}) => {
@@ -90,26 +90,44 @@ it('hides conversion at t=10s even when the video remains unready until t=15s', 
     expect(notices()).toEqual({ loading: false, conversion: false });
 });
 
-it.each([0, 2_999])('hides conversion at t=5s without a delayed notice when video is ready after %s ms', async (ms) => {
+it.each([0, 2_999])('delays conversion notices even when video is ready after %s ms', async (ms) => {
     await render({ conversionActive: true });
-    expect(notices()).toEqual({ loading: false, conversion: true });
+    expect(notices()).toEqual({ loading: false, conversion: false });
     await advance(ms);
     await ready();
-    await advance(4_999 - ms);
-    expect(notices()).toEqual({ loading: false, conversion: true });
+    await advance(2_999 - ms);
+    expect(notices().conversion).toBe(false);
     await advance(1);
-    expect(notices()).toEqual({ loading: false, conversion: false });
+    expect(notices().conversion).toBe(true);
+    await advance(6_999);
+    expect(notices().conversion).toBe(true);
+    await advance(1);
+    expect(notices().conversion).toBe(false);
 });
 
-it('does not reset the video load deadline when audio conversion starts or updates', async () => {
+it('times conversion from its actual start without resetting the video load deadline', async () => {
     await render();
     await advance(2_000);
     await render({ conversionActive: true });
     await advance(1_000);
-    expect(notices()).toEqual({ loading: true, conversion: true });
-    await render({ conversionActive: true });
-    await advance(7_000);
     expect(notices()).toEqual({ loading: true, conversion: false });
+    await advance(2_000);
+    expect(notices().conversion).toBe(true);
+    await render({ conversionActive: true });
+    await advance(6_999);
+    expect(notices().conversion).toBe(true);
+    await advance(1);
+    expect(notices().conversion).toBe(false);
+});
+
+it.each([2_000, 4_000])('hides a completed conversion at %s ms and cancels remaining timers', async (ms) => {
+    await render({ conversionActive: true });
+    await advance(ms);
+    expect(notices().conversion).toBe(ms >= 3_000);
+    await render({ conversionActive: true, conversionReady: true });
+    expect(notices().conversion).toBe(false);
+    await advance(10_000);
+    expect(notices().conversion).toBe(false);
 });
 
 it('can remove a failed conversion notice without hiding the delayed video notice', async () => {
@@ -149,11 +167,11 @@ it.each([0, 3_000, 10_000])('clears notices on a video error after %s ms', async
     expect(notices()).toEqual({ loading: false, conversion: false });
 });
 
-it('starts timing a new load even when the element initially has the previous file ready', async () => {
+it('starts a new video load without resetting an already-running conversion', async () => {
     readyState = HTMLMediaElement.HAVE_ENOUGH_DATA;
     await render({ conversionActive: true });
     await advance(5_000);
-    expect(notices()).toEqual({ loading: false, conversion: false });
+    expect(notices()).toEqual({ loading: false, conversion: true });
     readyState = HTMLMediaElement.HAVE_NOTHING;
     await event('loadstart');
     expect(notices()).toEqual({ loading: false, conversion: true });
@@ -166,7 +184,7 @@ it('checks current readiness when a browser has already decoded a frame without 
     readyState = HTMLMediaElement.HAVE_CURRENT_DATA;
     await advance(3_000);
     expect(notices()).toEqual({ loading: false, conversion: true });
-    await advance(2_000);
+    await advance(7_000);
     expect(notices()).toEqual({ loading: false, conversion: false });
 });
 
@@ -180,14 +198,16 @@ it('does not treat later buffering as an initial load delay', async () => {
     expect(notices()).toEqual({ loading: false, conversion: false });
 });
 
-it('waits for a video element before starting either notice', async () => {
+it('can show conversion feedback without a video element and waits for the element to time video loading', async () => {
     const element = video;
     video = undefined;
     await render({ conversionActive: true });
-    await advance(10_000);
+    await advance(3_000);
+    expect(notices()).toEqual({ loading: false, conversion: true });
+    await advance(7_000);
     expect(notices()).toEqual({ loading: false, conversion: false });
     video = element;
     await render({ conversionActive: true });
     await advance(3_000);
-    expect(notices()).toEqual({ loading: true, conversion: true });
+    expect(notices()).toEqual({ loading: true, conversion: false });
 });

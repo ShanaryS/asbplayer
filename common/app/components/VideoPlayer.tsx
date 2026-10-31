@@ -422,6 +422,7 @@ export default function VideoPlayer({
         video,
         source: videoFile,
         conversionActive: convertedAudio.active,
+        conversionReady: convertedAudio.complete,
     });
     const [audioSeekableRange, setAudioSeekableRange] = useState<AudioSeekableRange>();
     const [externalAudio, setExternalAudio] = useState<HTMLAudioElement | null>(null);

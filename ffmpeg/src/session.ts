@@ -2,6 +2,7 @@ import type { PreparedFfmpegAssets } from '@project/ffmpeg/assets';
 import { ffmpegMetadata } from '@project/ffmpeg/metadata';
 import { isWorkerReply } from '@project/ffmpeg/protocol';
 import type {
+    ExtractedSubtitle,
     FfmpegErrorCode,
     FfmpegDiagnostics,
     FfmpegRuntimeInfo,
@@ -29,6 +30,12 @@ export class FfmpegError extends Error {
 }
 
 export type FfmpegRuntime = {
+    extractSubtitles(options: {
+        input: Blob;
+        streamIndexes: number[];
+        signal?: AbortSignal;
+        onChunk: (streamIndex: number, chunk: ArrayBuffer) => void;
+    }): Promise<ExtractedSubtitle[]>;
     /** Aborting inspection cancels only that inspection; use session.dispose() to stop the shared worker. */
     inspect(options?: { signal?: AbortSignal }): Promise<FfmpegRuntimeInfo>;
     transcodeAudio(options: {
@@ -65,19 +72,11 @@ type Pending = {
     resolve(value: unknown): void;
     reject(error: unknown): void;
     cleanup(): void;
-} & (
-    | {
-          operation: 'transcodeAudio';
-          onChunk: (chunk: ArrayBuffer) => void;
-      }
-    | { operation: 'initialize' | 'inspect' }
-);
+    operation: WorkerRequestBody['operation'];
+    onChunk?: (chunk: ArrayBuffer, streamIndex?: number) => void;
+};
 type ChunkReply = Extract<WorkerReply, { type: 'chunk' }>;
-type SessionRequest =
-    | Exclude<WorkerRequestBody, { operation: 'transcodeAudio' }>
-    | (Extract<WorkerRequestBody, { operation: 'transcodeAudio' }> & {
-          onChunk: (chunk: ArrayBuffer) => void;
-      });
+type SessionRequest = WorkerRequestBody & { onChunk?: (chunk: ArrayBuffer, streamIndex?: number) => void };
 const abortError = () => new FfmpegError('aborted', 'The FFmpeg session was aborted');
 
 export const createFfmpegSession = ({
@@ -136,7 +135,7 @@ export const createFfmpegSession = ({
 
     /** Delivers output chunks for a running conversion; a throwing callback rejects only that request. */
     function onChunkReply(reply: ChunkReply, pendingRequest: Pending) {
-        if (pendingRequest.operation !== 'transcodeAudio') {
+        if (pendingRequest.onChunk === undefined) {
             terminate(
                 'failed',
                 new FfmpegError('protocol', `Unexpected FFmpeg ${reply.type} reply for a non-transcode request`)
@@ -144,7 +143,7 @@ export const createFfmpegSession = ({
             return;
         }
         try {
-            pendingRequest.onChunk(reply.chunk);
+            pendingRequest.onChunk(reply.chunk, reply.streamIndex);
         } catch (error) {
             pending.delete(reply.requestId);
             pendingRequest.cleanup();
@@ -192,16 +191,8 @@ export const createFfmpegSession = ({
         if (signal?.aborted) return Promise.reject(abortError());
         const id = ++requestId;
         // Chunk callbacks stay on the caller; only cloneable request data crosses the worker boundary.
-        const message: WorkerRequest =
-            operation.operation === 'transcodeAudio'
-                ? {
-                      sessionId,
-                      requestId: id,
-                      operation: 'transcodeAudio',
-                      input: operation.input,
-                      trackIndex: operation.trackIndex,
-                  }
-                : { sessionId, requestId: id, ...operation };
+        const message = { sessionId, requestId: id, ...operation };
+        delete message.onChunk;
         return new Promise<T>((resolve, reject) => {
             const cancel = () => {
                 if (!pending.has(id)) return;
@@ -214,9 +205,8 @@ export const createFfmpegSession = ({
                 resolve: (value) => resolve(value as T),
                 reject,
                 cleanup,
-                ...(operation.operation === 'transcodeAudio'
-                    ? { operation: operation.operation, onChunk: operation.onChunk }
-                    : { operation: operation.operation }),
+                operation: operation.operation,
+                onChunk: operation.onChunk,
             });
             signal?.addEventListener('abort', cancel, { once: true });
             if (signal?.aborted) cancel();
@@ -263,6 +253,46 @@ export const createFfmpegSession = ({
     };
 
     const runtime: FfmpegRuntime = {
+        extractSubtitles: async ({ input, streamIndexes, signal, onChunk }) => {
+            const indexes = [...new Set(streamIndexes)];
+            if (indexes.some((index) => !Number.isSafeInteger(index) || index < 0))
+                throw new FfmpegError('protocol', 'Invalid subtitle stream index');
+            if (indexes.length === 0) return [];
+            const result = await request<ExtractedSubtitle[]>(
+                {
+                    operation: 'extractSubtitles',
+                    input,
+                    streamIndexes: indexes,
+                    onChunk: (chunk, index) => {
+                        if (index === undefined || !indexes.includes(index))
+                            throw new FfmpegError('protocol', 'Unexpected subtitle output stream');
+                        onChunk(index, chunk);
+                    },
+                },
+                signal
+            );
+            if (
+                !Array.isArray(result) ||
+                result.length !== indexes.length ||
+                result.some(
+                    (track) =>
+                        typeof track !== 'object' ||
+                        track === null ||
+                        !indexes.includes(track.streamIndex) ||
+                        !(
+                            (track.extension === 'srt' &&
+                                track.mimeType === 'text/x-asbplayer-plain-srt' &&
+                                track.timelineOffsetMs === undefined) ||
+                            (track.extension === 'sup' &&
+                                track.mimeType === 'application/x-pgs' &&
+                                Number.isFinite(track.timelineOffsetMs))
+                        )
+                ) ||
+                new Set(result.map((track) => track.streamIndex)).size !== indexes.length
+            )
+                throw new FfmpegError('protocol', 'Incomplete subtitle extraction');
+            return result;
+        },
         inspect: ({ signal } = {}) => {
             if (state !== 'ready') {
                 return Promise.reject(new FfmpegError('disposed', 'The FFmpeg session is not ready'));
@@ -273,7 +303,19 @@ export const createFfmpegSession = ({
             if (state !== 'ready') {
                 return Promise.reject(new FfmpegError('disposed', 'The FFmpeg session is not ready'));
             }
-            return request<number>({ operation: 'transcodeAudio', input, trackIndex, onChunk }, signal);
+            return request<number>(
+                {
+                    operation: 'transcodeAudio',
+                    input,
+                    trackIndex,
+                    onChunk: (chunk, streamIndex) => {
+                        if (streamIndex !== undefined)
+                            throw new FfmpegError('protocol', 'Unexpected subtitle chunk for audio');
+                        onChunk(chunk);
+                    },
+                },
+                signal
+            );
         },
     };
 

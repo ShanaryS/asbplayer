@@ -1,3 +1,4 @@
+import type { EmbeddedSubtitleDescriptor } from '@project/common/embedded-subtitles/embedded-subtitles';
 import type { AnkiSettings, TokenState, TokenStatus } from '@project/common/settings';
 import type { GenericParseType, OnlineSubtitleSourceConfig } from '@project/common/global-state';
 import type { TokenStatusInfo } from '@project/common/dictionary-db';
@@ -224,6 +225,8 @@ export interface AnkiUiSavedState {
 }
 
 export interface VideoDataSubtitleTrackDef {
+    embedded?: EmbeddedSubtitleDescriptor;
+    disabledReason?: string;
     label: string;
     language?: string;
     url?: string | string[];

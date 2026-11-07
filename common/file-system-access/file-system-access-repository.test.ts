@@ -13,6 +13,10 @@ import {
 } from '@project/common/file-system-access/file-system-access';
 import { IndexedDBFileSessionRepository } from '@project/common/file-system-access/file-system-access-repository';
 
+const unexpectedExtraction = async () => {
+    throw new Error('Unexpected embedded subtitle extraction');
+};
+
 beforeEach(() => {
     Dexie.dependencies.indexedDB = new IDBFactory();
     Object.defineProperty(navigator, 'storage', {
@@ -114,7 +118,7 @@ async function reload() {
         }))
     );
     expect(errors).toEqual([]);
-    return { record, files: restoreSessionFiles(record, files) };
+    return { record, files: await restoreSessionFiles(record, files, unexpectedExtraction) };
 }
 
 it.each([[], ['local'], ['local', 'second-local'], ['-', 'local'], ['-'], ['-', '-']].map((order) => ({ order })))(
@@ -338,10 +342,11 @@ it.each(['video', 'subtitles'])('restores a session with only %s', async (kind) 
     expect(files.map(({ id }) => id)).toEqual(videoOnly ? ['video'] : ['local']);
 });
 
-it('preserves slot positions when a saved subtitle is unavailable', () => {
-    const files = restoreSessionFiles(
+it('preserves slot positions when a saved subtitle is unavailable', async () => {
+    const files = await restoreSessionFiles(
         { id: 1, timestamp: 1, subtitleHandles: [], subtitleTrackIds: [['missing'], ['online']] },
-        [online]
+        [online],
+        unexpectedExtraction
     );
     expect(files.map(({ id }) => id)).toEqual(['-', 'online']);
     expect(files[0].file.size).toBe(0);

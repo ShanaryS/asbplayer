@@ -33,6 +33,7 @@ import { HoveredToken, SubtitleAnnotations } from '@project/common/annotations';
 import type { SubtitleReader } from '@project/common/subtitle-reader';
 import type { KeyBinder } from '@project/common/key-binder';
 import { asbTrace } from '@project/common/util/log';
+import { subtitleOffsetUpdate } from '@project/common/util/subtitle-offset';
 import {
     clampMediaTimestamp,
     download,
@@ -147,6 +148,7 @@ function pause(clock: Clock, mediaAdapter: MediaAdapter, forwardToMedia: boolean
 
 interface PlayerProps {
     audioTranscodeHost?: AudioTranscodeHost;
+    onMediaReady?: () => void;
     sources?: MediaSources;
     subtitles: DisplaySubtitleModel[];
     mediaId?: string;
@@ -222,6 +224,7 @@ function PlayerComponent(
     {
         sources,
         audioTranscodeHost,
+        onMediaReady,
         subtitles,
         mediaId,
         subtitleReader,
@@ -697,25 +700,8 @@ function PlayerComponent(
     const applyOffset = useCallback(
         (offset: number, forwardToVideo: boolean) => {
             setOffset(offset);
-            if (!subtitles) {
-                return;
-            }
-
-            const length = subtitles.length > 0 ? subtitles[subtitles.length - 1].end + offset : 0;
-
-            const newSubtitles = subtitles.map((s, i) => ({
-                text: s.text,
-                textImage: s.textImage,
-                start: s.originalStart + offset,
-                originalStart: s.originalStart,
-                end: s.originalEnd + offset,
-                originalEnd: s.originalEnd,
-                displayTime: timeDurationDisplay(s.originalStart + offset, length),
-                displayEndTime: timeDurationDisplay(s.originalEnd + offset, length),
-                track: s.track,
-                index: i,
-                tokenization: s.tokenization,
-            }));
+            const update = subtitleOffsetUpdate(offset);
+            onSubtitles(update);
 
             if (forwardToVideo) {
                 if (channel !== undefined) {
@@ -723,14 +709,13 @@ function PlayerComponent(
 
                     // Older versions of extension don't support the offset message
                     if (tab !== undefined && extension.installed && !extension.supportsOffsetMessage) {
-                        channel.subtitles(newSubtitles, subtitleFileNames);
+                        const newSubtitles = update(subtitlesRef.current);
+                        if (newSubtitles) channel.subtitles(newSubtitles, subtitleFileNames);
                     }
                 }
             }
-
-            onSubtitles(newSubtitles);
         },
-        [subtitleFileNames, subtitles, extension, tab, channel, onSubtitles]
+        [subtitleFileNames, extension, tab, channel, onSubtitles]
     );
     applyOffsetRef.current = applyOffset;
 
@@ -979,6 +964,7 @@ function PlayerComponent(
             }),
         [channel, subtitles, videoFile]
     );
+    useEffect(() => channel?.onReady(() => onMediaReady?.()), [channel, onMediaReady]);
     useEffect(
         () =>
             channel?.onReady(() => {

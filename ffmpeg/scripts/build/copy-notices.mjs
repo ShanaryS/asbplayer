@@ -8,12 +8,14 @@ for (const filename of notices) {
     const source =
         filename === 'FFmpeg-LGPL-3.0.txt'
             ? resolve(packageRoot, '.cache/sources/ffmpeg/COPYING.LGPLv3')
-            : filename === 'FFmpeg-GPL-3.0.txt'
-              ? resolve(packageRoot, '.cache/sources/ffmpeg/COPYING.GPLv3')
-              : filename === 'Opus-BSD.txt'
-                ? resolve(packageRoot, '.cache/sources/opus/COPYING')
-                : filename === 'asbplayer-AGPL-3.0-or-later.txt'
-                  ? resolve(packageRoot, '../LICENSE')
-                  : resolve(packageRoot, '.cache/docker-output/notices', filename);
+            : filename === 'zlib-LICENSE.txt'
+              ? resolve(packageRoot, '.cache/sources/zlib/LICENSE')
+              : filename === 'FFmpeg-GPL-3.0.txt'
+                ? resolve(packageRoot, '.cache/sources/ffmpeg/COPYING.GPLv3')
+                : filename === 'Opus-BSD.txt'
+                  ? resolve(packageRoot, '.cache/sources/opus/COPYING')
+                  : filename === 'asbplayer-AGPL-3.0-or-later.txt'
+                    ? resolve(packageRoot, '../LICENSE')
+                    : resolve(packageRoot, '.cache/docker-output/notices', filename);
     await copyFile(source, resolve(packageRoot, 'dist', version, 'notices', filename));
 }

@@ -1,6 +1,7 @@
 import { asbError } from '@project/common/util/log';
 import { useCallback, useEffect, useState } from 'react';
 import type { FileWithId } from '@project/common/file-selector';
+import type { LoadableSubtitleTrack } from '@project/common';
 import type {
     FileSessionRecord,
     FileSessionSourceIds,
@@ -77,6 +78,21 @@ export const useFileSession = () => {
         await fileSessionRepository?.clearBuffered();
     }, [fileSessionRepository]);
 
+    const saveSubtitleSelection = useCallback(
+        async (tracks: LoadableSubtitleTrack<FileWithId>[]) => {
+            if (!fileSessionRepository) return;
+            const files = tracks.flatMap(({ fileParts }) => fileParts);
+            await fileSessionRepository.setCachedSubtitleFiles(files, {
+                subtitleTrackIds: tracks.map(({ fileParts }) => fileParts.map(({ id }) => id)),
+                embeddedSubtitles: Object.fromEntries(
+                    files.filter((file) => file.embedded).map((file) => [file.id, file.embedded!])
+                ),
+            });
+            setCanRestoreLastSession(true);
+        },
+        [fileSessionRepository]
+    );
+
     const saveCachedSubtitleFilesToSession = useCallback(
         async (files: FileWithId[]) => {
             const didSave = await fileSessionRepository?.setCachedSubtitleFiles(files);
@@ -99,6 +115,7 @@ export const useFileSession = () => {
     );
 
     return {
+        saveSubtitleSelection,
         canRestoreLastSession,
         saveSession,
         fetchSession,

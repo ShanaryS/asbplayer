@@ -18,6 +18,7 @@ Client startup and production builds download the prebuilt runtime selected by [
 - [Build](docs/build.md): develop a local candidate, run checks, understand the build pipeline, and reproduce released bytes.
 - [Release](docs/release.md): publish and select a runtime, understand versioning and archive names, and find corresponding source and licensing details.
 - [Caching](docs/caching.md): follow downloads and integrity verification, offline use, and app update behavior.
+- [Embedded subtitles](docs/subtitles.md): supported text formats, local candidate testing, restoration, and remaining image-subtitle work.
 - [Runtime](docs/runtime.md): integrate browser sessions, manage cancellation and resources, and follow worker/native request handling.
 
 Run `pnpm run verify` from the repository root for app, script, and FFmpeg code checks without Docker. Native builds and full release verification are covered in the [build documentation](docs/build.md#verification).

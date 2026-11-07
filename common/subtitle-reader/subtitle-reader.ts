@@ -1,3 +1,4 @@
+import { plainSrtMimeType } from '@project/common/embedded-subtitles/subtitle-source';
 import { compile as parseAss } from 'ass-compiler';
 import SrtParser from '@qgustavor/srt-parser';
 import { subtitlesToSrt } from '@project/common/subtitle-reader/subtitles-to-srt';
@@ -240,7 +241,10 @@ export default class SubtitleReader {
                 return {
                     start: Math.floor((node.startTime as number) * 1000),
                     end: Math.floor((node.endTime as number) * 1000),
-                    text: this._filterText(node.text.replace(assOverrideTagRegex, '')),
+                    text:
+                        subtitleSourceFile.type === plainSrtMimeType
+                            ? this._filterText(node.text, true)
+                            : this._filterText(node.text.replace(assOverrideTagRegex, '')),
                     track: track,
                 };
             });
@@ -880,7 +884,7 @@ export default class SubtitleReader {
         return this.xmlParser;
     }
 
-    private _filterText(text: string): string {
+    private _filterText(text: string, plainText = false): string {
         if (this._textFilter !== undefined) {
             const { regex, replacement } = this._textFilter;
 
@@ -897,6 +901,7 @@ export default class SubtitleReader {
             text = text.replace(regex, replacement).trim();
         }
 
+        if (plainText) return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
         if (this._removeXml) {
             text = removeSubtitleHtmlSafely(text);
         }

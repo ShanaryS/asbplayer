@@ -10,6 +10,8 @@ extern "C" {
 
 const char* asb_runtime_info_json(void) ASB_NOEXCEPT;
 
+const char* asb_extract_subtitles(double input_size, const char* stream_indexes) ASB_NOEXCEPT;
+
 double asb_transcode_audio(double input_size, int track_index) ASB_NOEXCEPT;
 const char* asb_last_error(void) ASB_NOEXCEPT;
 

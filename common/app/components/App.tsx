@@ -431,6 +431,7 @@ function App({
         subtitleTrackSelectorTracks,
         setSubtitleTrackSelectorTracks,
         onFilesImported,
+        audioTracks: localAudioTracks,
         embedded: { service: subtitleService, cancel: cancelEmbedded, loading: embeddedLoading, error: embeddedError },
     } = useLocalSubtitlePicker({
         source: sources.videoFile,
@@ -460,12 +461,6 @@ function App({
     const bufferedInputGeneration = useRef<object | undefined>(undefined);
     useEffect(() => {
         selectorGeneration.current = {};
-    }, [subtitleTrackSelectorOpen]);
-    useEffect(() => {
-        if (subtitleTrackSelectorOpen) videoChannelRef.current?.pause();
-    }, [subtitleTrackSelectorOpen]);
-    const handleMediaReady = useCallback(() => {
-        if (subtitleTrackSelectorOpen) videoChannelRef.current?.pause();
     }, [subtitleTrackSelectorOpen]);
     useEffect(() => {
         subtitleService.retain(sources.videoFile ? [sources.videoFile] : []);
@@ -525,7 +520,8 @@ function App({
                             fileParts: fileParts.map((file) => ({ ...file, track })),
                         })),
                         previous.videoFile,
-                        previous.videoFileUrl
+                        previous.videoFileUrl,
+                        previous.audioTrackIndex
                     );
                 });
                 await saveSubtitleSelection(completed, new Set());
@@ -1114,7 +1110,7 @@ function App({
     );
 
     const handleFiles = useCallback(
-        (files: MediaSourceFile[], selection = false): boolean => {
+        (files: MediaSourceFile[], selection = false, audioTrackIndex?: number): boolean => {
             setTabSubtitleFileNames(undefined);
             if (!selection) {
                 setEmbeddedSelection(undefined);
@@ -1165,7 +1161,8 @@ function App({
                                 }))
                               : previous.subtitleTracks,
                         videoFile,
-                        videoFileUrl
+                        videoFileUrl,
+                        newVideo || selection ? audioTrackIndex : previous.audioTrackIndex
                     );
 
                     const previousLoadingSources = previous.allSourceFiles;
@@ -1183,6 +1180,7 @@ function App({
                     void retainSourcesInFileSession({
                         subtitleTrackIds: sources.subtitleTracks.map(({ fileParts }) => fileParts.map(({ id }) => id)),
                         videoId: sources.videoFile?.id,
+                        audioTrackIndex: sources.audioTrackIndex,
                     });
 
                     return sources;
@@ -1310,7 +1308,7 @@ function App({
                     restored.subtitleSourceFiles.filter((file) => !pendingIds.has(file.id))
                 );
             }
-            if (!handleFiles(files)) {
+            if (!handleFiles(files, false, record.audioTrackIndex)) {
                 await clearFileSession();
             } else {
                 if (restored.videoFile && missingEmbeddedSubtitles.length) {
@@ -1909,50 +1907,72 @@ function App({
     }, [closeSubtitleTrackSelector, clearBufferedHandlesInFileSession, cancelSubtitleSelection]);
 
     const handleConfirmSubtitleTrackSelection = useCallback(
-        (tracks: ConfirmedVideoDataSubtitleTrack[]) => {
+        (tracks: ConfirmedVideoDataSubtitleTrack[], _remember: boolean, audioTrackIndex?: number) => {
             if (!subtitleTrackSelectorOpen) return;
-            confirmSubtitleSelection(tracks, async (selectedTracks, signal) => {
-                const files = selectedTracks.flatMap(({ fileParts }, track) =>
-                    fileParts.map((filePart) => ({ ...filePart, track }))
-                );
-                const session = await fetchFileSession();
-                signal.throwIfAborted();
-                const acceptedIds = new Set([...files.map((file) => file.id), sources.videoFile?.id]);
-                const handles = [
-                    ...(session?.subtitleHandles ?? []),
-                    ...(session?.bufferedSubtitleHandles ?? []),
-                ].filter((handle) => acceptedIds.has(handle.id));
-                if (!handleFiles(files, true)) return;
-                setEmbeddedSelection(undefined);
-                persistFileSessionHandles(handles);
-                const pendingDescriptors = selectedTracks.flatMap(({ fileParts }) =>
-                    fileParts.flatMap(({ embedded }) =>
-                        embedded &&
-                        sources.videoFile &&
-                        !subtitleService.completedFile(sources.videoFile, embedded.trackIndex)
-                            ? [embedded]
-                            : []
-                    )
-                );
-                const pendingIds = new Set(
-                    pendingDescriptors.map((descriptor) =>
-                        embeddedSubtitleId(descriptor.videoId, descriptor.trackIndex)
-                    )
-                );
-                await promoteBufferedHandlesInFileSession(files.map((file) => file.id));
-                signal.throwIfAborted();
-                await saveSubtitleSelection(selectedTracks, pendingIds);
-                signal.throwIfAborted();
-                if (sources.videoFile && pendingDescriptors.length) {
-                    startEmbeddedSubtitles(sources.videoFile, selectedTracks, pendingDescriptors);
-                }
-                closeSubtitleTrackSelector();
+
+            confirmSubtitleSelection({
+                tracks,
+                audioTrackIndex,
+                subtitleSourceStatus: playerRef.current?.getSubtitleSourceStatus() ?? 'complete',
+                onSubtitlesUnchanged: () => {
+                    if (audioTrackIndex !== sources.audioTrackIndex) {
+                        setSources((previous) => previous.withAudioTrackIndex(audioTrackIndex));
+                        void retainSourcesInFileSession({
+                            subtitleTrackIds: sources.subtitleTracks.map(({ fileParts }) =>
+                                fileParts.map(({ id }) => id)
+                            ),
+                            videoId: sources.videoFile?.id,
+                            audioTrackIndex,
+                        }).catch(handleError);
+                    }
+                    handleCloseSubtitleTrackSelector();
+                },
+                commit: async (selectedTracks, signal) => {
+                    const files = selectedTracks.flatMap(({ fileParts }, track) =>
+                        fileParts.map((filePart) => ({ ...filePart, track }))
+                    );
+                    const session = await fetchFileSession();
+                    signal.throwIfAborted();
+                    const acceptedIds = new Set([...files.map((file) => file.id), sources.videoFile?.id]);
+                    const handles = [
+                        ...(session?.subtitleHandles ?? []),
+                        ...(session?.bufferedSubtitleHandles ?? []),
+                    ].filter((handle) => acceptedIds.has(handle.id));
+                    if (!handleFiles(files, true, audioTrackIndex)) return;
+                    setEmbeddedSelection(undefined);
+                    persistFileSessionHandles(handles);
+                    const pendingDescriptors = selectedTracks.flatMap(({ fileParts }) =>
+                        fileParts.flatMap(({ embedded }) =>
+                            embedded &&
+                            sources.videoFile &&
+                            !subtitleService.completedFile(sources.videoFile, embedded.trackIndex)
+                                ? [embedded]
+                                : []
+                        )
+                    );
+                    const pendingIds = new Set(
+                        pendingDescriptors.map((descriptor) =>
+                            embeddedSubtitleId(descriptor.videoId, descriptor.trackIndex)
+                        )
+                    );
+                    await promoteBufferedHandlesInFileSession(files.map((file) => file.id));
+                    signal.throwIfAborted();
+                    await saveSubtitleSelection(selectedTracks, pendingIds);
+                    signal.throwIfAborted();
+                    if (sources.videoFile && pendingDescriptors.length) {
+                        startEmbeddedSubtitles(sources.videoFile, selectedTracks, pendingDescriptors);
+                    }
+                    closeSubtitleTrackSelector();
+                },
             });
         },
         [
             subtitleTrackSelectorOpen,
+            sources,
+            retainSourcesInFileSession,
+            handleError,
+            handleCloseSubtitleTrackSelector,
             confirmSubtitleSelection,
-            sources.videoFile,
             subtitleService,
             handleFiles,
             persistFileSessionHandles,
@@ -2156,6 +2176,8 @@ function App({
                                     isLoading={selectorBusy}
                                     discovering={embeddedLoading}
                                     suggestedName={sources.videoFile?.file.name ?? ''}
+                                    audioTracks={localAudioTracks}
+                                    audioTrackIndex={sources.audioTrackIndex}
                                     subtitleTracks={subtitleTrackSelectorTracks}
                                     selectedSubtitleTrackIds={subtitleTrackSelectorSelectedTrackIds}
                                     onSelectedSubtitleTrackIds={setSubtitleTrackSelectorSelectedTrackIds}
@@ -2250,7 +2272,7 @@ function App({
                                 <Player
                                     supportsDictionaryPlayback={supportsDictionaryPlayback}
                                     audioTranscodeHost={audioTranscodeHost}
-                                    onMediaReady={handleMediaReady}
+                                    subtitlePickerOpen={subtitleTrackSelectorOpen}
                                     ref={playerRef}
                                     origin={origin}
                                     subtitleReader={subtitleReader}

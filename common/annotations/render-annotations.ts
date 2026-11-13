@@ -238,7 +238,8 @@ export const computeRichText = (fullText: string, tokenization: Tokenization, ss
 
     const parts: string[] = [];
     // Each hover variant needs its own history across tokens for attached-particle pitch.
-    const variants: { state: TokenStyleState; pitch: PitchAccentContext }[] = [
+    const variants: { state: TokenStyleState; pitch: PitchAccentContext }[] = [];
+    const variantIndexes = [
         ss,
         ...(ss.hoverAnnotations
             ? [
@@ -246,7 +247,16 @@ export const computeRichText = (fullText: string, tokenization: Tokenization, ss
                   { ...ss, enabledAnnotations: ss.hoverAnnotations.token },
               ]
             : []),
-    ].map((state) => ({ state, pitch: {} }));
+    ].map((state) => {
+        const existing = variants.findIndex(({ state: previous }) =>
+            (Object.keys(state.enabledAnnotations) as (keyof EnabledAnnotations)[]).every(
+                (annotation) => state.enabledAnnotations[annotation] === previous.enabledAnnotations[annotation]
+            )
+        );
+        if (existing >= 0) return existing;
+        variants.push({ state, pitch: {} });
+        return variants.length - 1;
+    });
     iterateOverStringInBlocks(
         fullText,
         (_, blockIndex) => tokenization.tokens[blockIndex],
@@ -255,9 +265,8 @@ export const computeRichText = (fullText: string, tokenization: Tokenization, ss
                 for (const variant of variants) clearPitchAccentContext(variant.pitch);
                 parts.push(fullText.substring(left, right));
             } else {
-                const [base, cue = base, word = cue] = variants.map(({ state, pitch }) =>
-                    applyTokenStyle(fullText, token, pitch, state)
-                );
+                const rendered = variants.map(({ state, pitch }) => applyTokenStyle(fullText, token, pitch, state));
+                const [base, cue = base, word = cue] = variantIndexes.map((index) => rendered[index]);
                 if (base === cue && cue === word) {
                     parts.push(base);
                 } else {
@@ -439,12 +448,14 @@ const glossBracketPairs = new Map([
     ['{', '}'],
     ['｛', '｝'],
 ]);
+const glossOpeningBracketRegex = /[([{（［【｛]/u;
 const glossEntityPrefixRegex = /&(?:#\d+|#x[\da-f]+|[a-z][\da-z]+)$/iu;
 const glossSurroundingPunctuationRegex = /^[\s,，、.!！?？|｜•・]+|[\s,，、.!！?？|｜•・]+$/gu;
 const escapeHtmlText = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const escapeHtmlAttribute = (text: string) => escapeHtmlText(text).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
 const removeBalancedGlossBrackets = (gloss: string) => {
+    if (!glossOpeningBracketRegex.test(gloss)) return gloss;
     const graphemes = Array.from(glossGraphemeSegmenter.segment(gloss), ({ segment }) => segment);
     const stack: { grapheme: string; index: number }[] = [];
     const ranges: [number, number][] = [];
@@ -543,6 +554,31 @@ const glossLines = (gloss: string, rawTokenText: string, glossSize: number) => {
     };
 };
 
+interface PreparedGloss {
+    readonly lines: readonly string[];
+    readonly fullGloss: string | undefined;
+}
+
+// Only text layout is cached; token markup, status, and line placement remain per render.
+// Keep a few thousand layouts across cues and settings changes, then clear the cache when full.
+const MAX_PREPARED_GLOSSES = 4096;
+const preparedGlossCache = new Map<string, PreparedGloss>();
+
+const prepareGloss = (gloss: string, rawTokenText: string, glossSize: number): PreparedGloss => {
+    const key = JSON.stringify([gloss, rawTokenText, glossSize]);
+    const cached = preparedGlossCache.get(key);
+    if (cached !== undefined) return cached;
+
+    const { lines, truncated } = glossLines(compactGloss(gloss), rawTokenText, glossSize);
+    const prepared = {
+        lines: lines.map(escapeHtmlText),
+        fullGloss: truncated ? escapeHtmlAttribute(gloss.replace(/\s+/gu, ' ').trim()) : undefined,
+    };
+    if (preparedGlossCache.size >= MAX_PREPARED_GLOSSES) preparedGlossCache.clear();
+    preparedGlossCache.set(key, prepared);
+    return prepared;
+};
+
 const applyGlossAnnotation = (
     fullText: string,
     tokenText: string,
@@ -557,8 +593,7 @@ const applyGlossAnnotation = (
     const lastNewlineIndex = fullText.lastIndexOf('\n');
     const positionClass = lastNewlineIndex >= 0 && token.pos[0] > lastNewlineIndex ? ` ${ASB_GLOSS_UNDER_CLASS}` : '';
     const className = `${ASB_GLOSS_CLASS}${positionClass}`;
-    const { lines: rawLines, truncated } = glossLines(compactGloss(token.gloss), rawTokenText, ss.glossSize);
-    const lines = rawLines.map(escapeHtmlText);
+    const { lines, fullGloss } = prepareGloss(token.gloss, rawTokenText, ss.glossSize);
     const annotationText = (line: string) => `<span class="${ASB_GLOSS_TEXT_CLASS}">${line}</span>`;
     let annotatedToken: string;
     if (lines.length === 1) {
@@ -568,8 +603,7 @@ const applyGlossAnnotation = (
         annotatedToken = `<ruby class="${className}"><ruby class="${className}">${tokenText}<rt>${annotationText(innerLine)}</rt></ruby><rt>${annotationText(outerLine)}</rt></ruby>`;
     }
 
-    if (!truncated) return annotatedToken;
-    const fullGloss = escapeHtmlAttribute(token.gloss.replace(/\s+/gu, ' ').trim());
+    if (fullGloss === undefined) return annotatedToken;
     return `<span class="${ASB_GLOSS_POPUP_CLASS}" data-asb-gloss="${fullGloss}">${annotatedToken}</span>`;
 };
 

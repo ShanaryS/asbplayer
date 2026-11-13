@@ -394,6 +394,11 @@ describe('rich text rendering', () => {
     it.each([
         ['to escape (disaster, death, etc.)', 'to escape'],
         ['逃れる（災害・死など）', '逃れる'],
+        ['escape [danger]', 'escape'],
+        ['escape ［danger］', 'escape'],
+        ['escape 【danger】', 'escape'],
+        ['escape {danger}', 'escape'],
+        ['escape ｛danger｝', 'escape'],
         ['échapper (à un danger)', 'échapper'],
         ['term (note (additional detail))', 'term'],
         ['escape; avoid; evade', 'escape'],
@@ -501,6 +506,39 @@ describe('rich text rendering', () => {
         );
     });
 
+    it('reuses gloss layout across renders without reusing token annotations or target sizes', () => {
+        const dt = makeAnnotationTrack({ gloss: true, reading: true, frequency: true });
+        dt.dictionaryTokenAnnotationConfig.subtitlePlayer.gloss.size = 1;
+        const token = makeInternalToken({
+            pos: [0, 2],
+            gloss: 'abcdefghijklmnop',
+            frequency: 7,
+            readings: [{ pos: [0, 2], reading: 'ごがく' }],
+        });
+        const subtitle = makeSubtitle({ text: '語学', tokenization: { tokens: [token] } });
+        const root = document.createElement('div');
+        const render = (target: 'video' | 'subtitlePlayer') => {
+            root.innerHTML =
+                renderRichTextOntoSubtitles([subtitle], target, makeDictionaryTracks(dt), {
+                    adaptiveWordVisibilityEnabled: true,
+                }).get(subtitle.index)?.richText ?? '';
+            return Array.from(root.querySelectorAll('.asb-gloss-text'), (line) => line.textContent);
+        };
+
+        expect(render('video')).toEqual(['hijklmn-', 'abcdefg-']);
+        expect(root.querySelector('.asb-reading > rt')?.textContent).toBe('ごがく');
+        token.frequency = 9;
+        token.readings = [{ pos: [0, 2], reading: 'がくしゅう' }];
+        expect(render('video')).toEqual(['hijklmn-', 'abcdefg-']);
+        expect(root.querySelector('.asb-frequency > rt')?.textContent).toBe('9');
+        expect(root.querySelector('.asb-reading > rt')?.textContent).toBe('がくしゅう');
+        expect(render('subtitlePlayer')).toEqual(['def-', 'abc-']);
+        expect(render('video')).toEqual(['hijklmn-', 'abcdefg-']);
+        token.gloss = 'other';
+        expect(render('video')).toEqual(['other']);
+        expect(root.querySelector('.asb-gloss-popup')).toBeNull();
+    });
+
     it('includes the escaped full gloss in a popup only when the displayed gloss is truncated', () => {
         const rendered = renderToken(
             'word',
@@ -518,6 +556,81 @@ describe('rich text rendering', () => {
                 makeAnnotationTrack({ gloss: true })
             )
         ).not.toContain('asb-gloss-popup');
+    });
+
+    it('prepares shared glosses according to each word and keeps distinct definitions and popup text', () => {
+        const dt = makeAnnotationTrack({ gloss: true });
+        const root = document.createElement('div');
+        root.innerHTML =
+            computeRichText(
+                'word 語 word word',
+                {
+                    tokens: [
+                        makeInternalToken({ pos: [0, 4], gloss: 'abcdefghijklmnop (first)' }),
+                        makeInternalToken({ pos: [5, 6], gloss: 'abcdefghijklmnop (first)' }),
+                        makeInternalToken({ pos: [7, 11], gloss: 'other' }),
+                        makeInternalToken({ pos: [12, 16], gloss: 'abcdefghijklmnop (second)' }),
+                    ],
+                },
+                { ...getAnnotationsForRender(dt, 'video'), allowAsciiReading: false }
+            ) ?? '';
+
+        const tokens = Array.from(root.children);
+        expect(
+            tokens.map((token) => Array.from(token.querySelectorAll('.asb-gloss-text'), (line) => line.textContent))
+        ).toEqual([['hijklmn-', 'abcdefg-'], ['def-', 'abc-'], ['other'], ['hijklmn-', 'abcdefg-']]);
+        expect(tokens.map((token) => token.querySelector('.asb-gloss-popup')?.getAttribute('data-asb-gloss'))).toEqual([
+            'abcdefghijklmnop (first)',
+            'abcdefghijklmnop (first)',
+            undefined,
+            'abcdefghijklmnop (second)',
+        ]);
+    });
+
+    it('keeps shared gloss text independent of line placement and hover-only readings and frequencies', () => {
+        const dt = makeAnnotationTrack({ gloss: true, reading: true, frequency: true });
+        const config = dt.dictionaryTokenAnnotationConfig.video;
+        config.frequency.onHoverEnabled = true;
+        config.reading.onHoverEnabled = true;
+        config.reading.hoverPerToken = true;
+        const root = document.createElement('div');
+        root.innerHTML =
+            computeRichText(
+                '語学\n語学',
+                {
+                    tokens: [
+                        makeInternalToken({
+                            pos: [0, 2],
+                            gloss: 'abcdefghijkl',
+                            readings: [{ pos: [0, 2], reading: 'ごがく' }],
+                            frequency: 7,
+                        }),
+                        makeInternalToken({
+                            pos: [3, 5],
+                            gloss: 'abcdefghijkl',
+                            readings: [{ pos: [0, 2], reading: 'がくしゅう' }],
+                            frequency: 9,
+                        }),
+                    ],
+                },
+                { ...getAnnotationsForRender(dt, 'video'), allowAsciiReading: false }
+            ) ?? '';
+
+        for (const [index, token] of Array.from(root.children).entries()) {
+            for (const variant of ['base', 'on-cue-hover', 'on-word-hover']) {
+                const branch = token.querySelector(`.asb-token-${variant}`)!;
+                expect(Array.from(branch.querySelectorAll('.asb-gloss-text'), (line) => line.textContent)).toEqual(
+                    index === 0 ? ['hijkl', 'abcdefg-'] : ['abcdefg-', 'hijkl']
+                );
+                expect(branch.querySelector('.asb-gloss-under') !== null).toBe(index === 1);
+                expect(branch.querySelector('.asb-frequency > rt')?.textContent).toBe(
+                    variant === 'base' ? undefined : ['7', '9'][index]
+                );
+                expect(branch.querySelector('.asb-reading > rt')?.textContent).toBe(
+                    variant === 'on-word-hover' ? ['ごがく', 'がくしゅう'][index] : undefined
+                );
+            }
+        }
     });
 
     it('renders glosses below the bottom subtitle line', () => {

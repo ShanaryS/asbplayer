@@ -555,10 +555,6 @@ export default function VideoPlayer({
     const handleBlurOverlayToggle = useCallback(() => setBlurOverlayVisible((v) => !v), []);
     const mobileOverlayRef = useRef<HTMLDivElement>(null);
     const bottomSubtitleContainerRef = useRef<HTMLDivElement>(null);
-    const domCacheRef = useRef<OffscreenDomCache | undefined>(undefined);
-    const updateSubtitleDomCacheRef = useRef<((subtitles: readonly IndexedSubtitleModel[]) => void) | undefined>(
-        undefined
-    );
     const thumbnailsRef = useRef<Map<number, string>>(new Map()); // cache thumbnails, in intervals of 5s
     const isGeneratingRef = useRef(false); // avoid subsequent calls to generate thumbnail while generating one
 
@@ -1107,9 +1103,6 @@ export default function VideoPlayer({
             });
             setShowSubtitles((previous) => mergeSubtitleAnnotations(previous, updatedSubtitles));
             const allSubtitles = mergeSubtitleAnnotations(subtitlesRef.current, updatedSubtitles);
-            updateSubtitleDomCacheRef.current?.(
-                allSubtitles.filter((cue, index) => cue !== subtitlesRef.current[index])
-            );
             subtitlesRef.current = allSubtitles;
             annotationSubtitlesRef.current = allSubtitles;
             setSubtitles(allSubtitles);
@@ -2196,10 +2189,7 @@ export default function VideoPlayer({
         ]
     );
 
-    const { getSubtitleDomCache, updateSubtitleDomCache } = useSubtitleDomCache(subtitles, getSubtitleHtml);
-
-    domCacheRef.current = getSubtitleDomCache();
-    updateSubtitleDomCacheRef.current = updateSubtitleDomCache;
+    const subtitleDomCache = useSubtitleDomCache(subtitles, getSubtitleHtml);
 
     const handleSwipe = useCallback(
         (direction: Direction) => {
@@ -2322,7 +2312,7 @@ export default function VideoPlayer({
             key={subtitleKey(subtitle)}
             subtitle={subtitle}
             visible={visible}
-            domCache={domCacheRef.current ?? getSubtitleDomCache()}
+            domCache={subtitleDomCache}
             renderHtml={getSubtitleHtml}
             onMouseOver={handleSubtitleMouseOver}
             onMouseOut={handleSubtitleMouseOut}

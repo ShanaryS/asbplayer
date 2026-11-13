@@ -149,6 +149,21 @@ describe('SubtitleAnnotations public boundary', () => {
         expect(subtitleAnnotationsUpdated).not.toHaveBeenCalled();
     });
 
+    it('does not mutate a published tokenization when disabling annotations', async () => {
+        const track = makeDictionaryTrack({ dictionaryColorizeSubtitles: true });
+        const { subtitleAnnotations } = makeSubtitleAnnotations(
+            makeSettings(makeDictionaryTracks(track)),
+            makeFetcher()
+        );
+        subtitleAnnotations.setSubtitles([makeSubtitle({ text: 'word' })], []);
+        await waitForTokenization(subtitleAnnotations);
+        const published = subtitleAnnotations.subtitles[0].tokenization;
+        const expected = JSON.parse(JSON.stringify(published));
+        subtitleAnnotations.settingsUpdated(makeSettings(makeDictionaryTracks()), { force: false });
+        expect(published).toEqual(expected);
+        expect(subtitleAnnotations.subtitles[0].tokenization).toBeUndefined();
+    });
+
     it('keeps annotations and current timing when subtitles change during tokenization', async () => {
         let release!: () => void;
         let started!: () => void;

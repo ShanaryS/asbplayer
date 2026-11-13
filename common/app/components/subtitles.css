@@ -2,6 +2,7 @@
     position: fixed !important;
     left: 100% !important;
     top: 100% !important;
+    content-visibility: hidden; /* Keep cached DOM attached without laying out offscreen ruby annotations. */
 }
 
 .asbplayer-subtitles {

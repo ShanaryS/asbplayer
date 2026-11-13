@@ -3,6 +3,7 @@ import type { LoadableSubtitleTrack, SerializedSubtitleFile } from '@project/com
 import { base64ToBlob } from '@project/common/base64';
 import type { FileWithId } from '@project/common/file-selector';
 import { LocalizedError } from '@project/common/app/components/localized-error';
+import { ffmpegSubtitleFormats } from '@project/ffmpeg/protocol';
 
 /** A selected media source. Omitted track indexes assign each subtitle file its own track. */
 export type MediaSourceFile = FileWithId & { track?: number };
@@ -17,6 +18,7 @@ export const subtitleExtensions = [
     '.ass',
     '.vtt',
     '.sup',
+    `.${ffmpegSubtitleFormats.image.extension}`,
     '.nfvtt',
     '.nfimsc',
     '.ytxml',
@@ -26,9 +28,9 @@ export const subtitleExtensions = [
     '.bbjson',
 ] as const;
 
-export const VIDEO_EXT_SET = new Set<string>(videoExtensions);
-export const AUDIO_EXT_SET = new Set<string>(audioExtensions);
-export const SUBTITLE_EXT_SET = new Set<string>(subtitleExtensions);
+export const VIDEO_EXT_SET: ReadonlySet<string> = new Set(videoExtensions);
+export const AUDIO_EXT_SET: ReadonlySet<string> = new Set(audioExtensions);
+export const SUBTITLE_EXT_SET: ReadonlySet<string> = new Set(subtitleExtensions);
 
 export const getExtension = (fileName: string) => {
     const index = fileName.lastIndexOf('.');

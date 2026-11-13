@@ -253,11 +253,14 @@ export const selectTokenInRoot = (
     subtitleElement?.classList.add(ASB_SUBTITLE_TOKEN_SELECTED_CLASS);
     for (const tokenElement of tokenElements) {
         tokenElement.classList.add(ASB_TOKEN_SELECTED_CLASS);
+        tokenElement.closest('.asb-token-hover')?.classList.add(ASB_TOKEN_SELECTED_CLASS);
         if (autoPause) tokenElement.classList.add(ASB_TOKEN_AUTO_PAUSE_SELECTED_CLASS);
     }
 
     const tokenElement =
-        tokenElements.find((element) => element.closest('.asbplayer-subtitle-rich')) ?? tokenElements[0];
+        tokenElements.find((element) => element.closest('.asb-token-on-word-hover')) ??
+        tokenElements.find((element) => element.closest('.asb-token-on-cue-hover')) ??
+        tokenElements[0];
 
     const document = tokenElement.ownerDocument;
     if (focusContainer) {

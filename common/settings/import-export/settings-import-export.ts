@@ -349,27 +349,47 @@ const dictionaryTrackSchema = {
                     properties: {
                         color: {
                             type: 'object',
-                            properties: { onHoverEnabled: { type: 'boolean' }, size: { type: 'number' } },
+                            properties: {
+                                onHoverEnabled: { type: 'boolean' },
+                                hoverPerToken: { type: 'boolean' },
+                                size: { type: 'number' },
+                            },
                             required: ['onHoverEnabled', 'size'],
                         },
                         reading: {
                             type: 'object',
-                            properties: { onHoverEnabled: { type: 'boolean' }, size: { type: 'number' } },
+                            properties: {
+                                onHoverEnabled: { type: 'boolean' },
+                                hoverPerToken: { type: 'boolean' },
+                                size: { type: 'number' },
+                            },
                             required: ['onHoverEnabled', 'size'],
                         },
                         frequency: {
                             type: 'object',
-                            properties: { onHoverEnabled: { type: 'boolean' }, size: { type: 'number' } },
+                            properties: {
+                                onHoverEnabled: { type: 'boolean' },
+                                hoverPerToken: { type: 'boolean' },
+                                size: { type: 'number' },
+                            },
                             required: ['onHoverEnabled', 'size'],
                         },
                         gloss: {
                             type: 'object',
-                            properties: { onHoverEnabled: { type: 'boolean' }, size: { type: 'number' } },
+                            properties: {
+                                onHoverEnabled: { type: 'boolean' },
+                                hoverPerToken: { type: 'boolean' },
+                                size: { type: 'number' },
+                            },
                             required: ['onHoverEnabled', 'size'],
                         },
                         pitchAccent: {
                             type: 'object',
-                            properties: { onHoverEnabled: { type: 'boolean' }, size: { type: 'number' } },
+                            properties: {
+                                onHoverEnabled: { type: 'boolean' },
+                                hoverPerToken: { type: 'boolean' },
+                                size: { type: 'number' },
+                            },
                             required: ['onHoverEnabled', 'size'],
                         },
                     },
@@ -380,27 +400,47 @@ const dictionaryTrackSchema = {
                     properties: {
                         color: {
                             type: 'object',
-                            properties: { onHoverEnabled: { type: 'boolean' }, size: { type: 'number' } },
+                            properties: {
+                                onHoverEnabled: { type: 'boolean' },
+                                hoverPerToken: { type: 'boolean' },
+                                size: { type: 'number' },
+                            },
                             required: ['onHoverEnabled', 'size'],
                         },
                         reading: {
                             type: 'object',
-                            properties: { onHoverEnabled: { type: 'boolean' }, size: { type: 'number' } },
+                            properties: {
+                                onHoverEnabled: { type: 'boolean' },
+                                hoverPerToken: { type: 'boolean' },
+                                size: { type: 'number' },
+                            },
                             required: ['onHoverEnabled', 'size'],
                         },
                         frequency: {
                             type: 'object',
-                            properties: { onHoverEnabled: { type: 'boolean' }, size: { type: 'number' } },
+                            properties: {
+                                onHoverEnabled: { type: 'boolean' },
+                                hoverPerToken: { type: 'boolean' },
+                                size: { type: 'number' },
+                            },
                             required: ['onHoverEnabled', 'size'],
                         },
                         gloss: {
                             type: 'object',
-                            properties: { onHoverEnabled: { type: 'boolean' }, size: { type: 'number' } },
+                            properties: {
+                                onHoverEnabled: { type: 'boolean' },
+                                hoverPerToken: { type: 'boolean' },
+                                size: { type: 'number' },
+                            },
                             required: ['onHoverEnabled', 'size'],
                         },
                         pitchAccent: {
                             type: 'object',
-                            properties: { onHoverEnabled: { type: 'boolean' }, size: { type: 'number' } },
+                            properties: {
+                                onHoverEnabled: { type: 'boolean' },
+                                hoverPerToken: { type: 'boolean' },
+                                size: { type: 'number' },
+                            },
                             required: ['onHoverEnabled', 'size'],
                         },
                     },

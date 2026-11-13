@@ -36,7 +36,6 @@ import {
     clearTokenSelectionInRoot,
     currentTokenSelectionLocation,
     renderRichTextOntoSubtitles,
-    getAnnotationsHtml,
     selectTokenInRoot,
     clearAutoPauseTokenSelectionInRoot,
     restorableTokenSelectionInRoot,
@@ -714,13 +713,7 @@ export default class SubtitleController {
                             className: this._subtitleClasses(subtitle.track),
                         });
                     } else {
-                        return this._buildTextHtml(
-                            subtitle.text,
-                            subtitle.track,
-                            rendered?.richText,
-                            rendered?.richTextOnHover,
-                            subtitle.index
-                        );
+                        return this._buildTextHtml(subtitle.text, subtitle.track, rendered?.richText, subtitle.index);
                     }
                 },
                 key: subtitleKey(subtitle),
@@ -728,17 +721,11 @@ export default class SubtitleController {
         });
     }
 
-    private _buildTextHtml(
-        text: string,
-        track?: number,
-        richText?: string,
-        richTextOnHover?: string,
-        subtitleIndex?: number
-    ) {
+    private _buildTextHtml(text: string, track?: number, richText?: string, subtitleIndex?: number) {
         const indexAttribute = subtitleIndex === undefined ? '' : ` ${ASB_SUBTITLE_INDEX_ATTRIBUTE}="${subtitleIndex}"`;
         return `<span data-track="${track ?? 0}"${indexAttribute} class="${this._subtitleClasses(
             track
-        )}" style="${this._subtitleStyles(track)}">${getAnnotationsHtml(text, richText, richTextOnHover)}</span>`;
+        )}" style="${this._subtitleStyles(track)}">${richText ?? text}</span>`;
     }
 
     unbind() {

@@ -117,6 +117,43 @@ describe('HoveredToken', () => {
         wrapper.remove();
     });
 
+    it.each([false, true])('selects and parses a per-word hover variant with coloring: %s', (colorize) => {
+        const track = makeDictionaryTrack({ dictionaryColorizeSubtitles: colorize });
+        track.dictionaryTokenAnnotationConfig.onStatuses[TokenStatus.UNKNOWN].gloss = true;
+        track.dictionaryTokenAnnotationConfig.video.gloss.onHoverEnabled = true;
+        track.dictionaryTokenAnnotationConfig.video.gloss.hoverPerToken = true;
+        const subtitle = makeSubtitle({
+            text: '語学 学習',
+            tokenization: {
+                tokens: [
+                    makeToken({ pos: [0, 2], status: TokenStatus.UNKNOWN, gloss: 'language' }),
+                    makeToken({ pos: [3, 5], status: TokenStatus.UNKNOWN, gloss: 'study' }),
+                ],
+            },
+        });
+        const wrapper = document.createElement('div');
+        wrapper.className = 'asb-subtitles';
+        wrapper.dataset.track = '0';
+        wrapper.setAttribute(ASB_SUBTITLE_INDEX_ATTRIBUTE, String(subtitle.index));
+        wrapper.innerHTML =
+            renderRichTextOntoSubtitles([subtitle], 'video', makeDictionaryTracks(track), {
+                adaptiveWordVisibilityEnabled: true,
+            }).get(0)?.richText ?? '';
+        document.body.append(wrapper);
+        const hovered = new HoveredToken();
+        expect(selectTokenInRoot(wrapper, { subtitleIndex: subtitle.index, tokenStart: 3 })).toBe(true);
+        const selected = document.getSelection()?.anchorNode;
+        const selectedElement = selected instanceof Element ? selected : selected?.parentElement;
+        expect(selectedElement?.closest('.asb-token-on-word-hover')).not.toBeNull();
+        expect(hovered.parse()).toEqual(colorize ? { token: '学習', track: 0 } : null);
+        expect(wrapper.querySelectorAll('.asb-token-hover.asb-token-selected')).toHaveLength(1);
+        expect(selectTokenInRoot(wrapper, { subtitleIndex: subtitle.index, tokenStart: 0 })).toBe(true);
+        expect(hovered.parse()).toEqual(colorize ? { token: '語学', track: 0 } : null);
+        clearTokenSelectionInRoot(wrapper);
+        expect(wrapper.querySelector('.asb-token-selected')).toBeNull();
+        wrapper.remove();
+    });
+
     it('does not use a selected token from another subtitle overlay while hovering', () => {
         const hoveredToken = new HoveredToken();
         const selectedOverlay = document.createElement('div');
@@ -403,7 +440,7 @@ describe('token jump navigation', () => {
     it('activates hover annotations and clears only the previous selection in the same root', () => {
         const firstRoot = document.createElement('div');
         firstRoot.innerHTML =
-            '<span class="asb-subtitles" data-asb-subtitle-index="1"><span class="asbplayer-subtitle-text"><span class="asb-token" data-asb-token-start="0">plain</span></span><span class="asbplayer-subtitle-rich"><span class="asb-token" data-asb-token-start="0">rich</span></span></span>';
+            '<span class="asb-subtitles" data-asb-subtitle-index="1"><span class="asb-token-hover asb-token-hover-cue asb-token-hover-word"><span class="asb-token-base"><span class="asb-token" data-asb-token-start="0">plain</span></span><span class="asb-token-on-cue-hover"><span class="asb-token" data-asb-token-start="0">cue</span></span><span class="asb-token-on-word-hover"><span class="asb-token" data-asb-token-start="0">rich</span></span></span></span>';
         const secondRoot = document.createElement('div');
         secondRoot.innerHTML =
             '<span class="asb-subtitles" data-asb-subtitle-index="2"><span class="asb-token" data-asb-token-start="0">other</span></span>';
@@ -413,9 +450,12 @@ describe('token jump navigation', () => {
         expect(selectTokenInRoot(firstRoot, { subtitleIndex: 1, tokenStart: 0 })).toBe(true);
 
         expect(firstRoot.querySelector(`.${ASB_SUBTITLE_TOKEN_SELECTED_CLASS}`)).not.toBeNull();
-        expect(firstRoot.querySelectorAll(`.${ASB_TOKEN_SELECTED_CLASS}`)).toHaveLength(2);
+        expect(firstRoot.querySelector('.asb-token-hover')?.classList.contains(ASB_TOKEN_SELECTED_CLASS)).toBe(true);
         expect(document.getSelection()?.toString()).toBe('rich');
         expect(secondRoot.querySelector(`.${ASB_TOKEN_SELECTED_CLASS}`)).not.toBeNull();
+        clearTokenSelectionInRoot(firstRoot);
+        expect(firstRoot.querySelector(`.${ASB_TOKEN_SELECTED_CLASS}`)).toBeNull();
+        expect(document.getSelection()?.toString()).toBe('');
 
         firstRoot.remove();
         secondRoot.remove();

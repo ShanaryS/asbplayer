@@ -24,12 +24,7 @@ import {
     sortDictionaryStatisticsSentenceBucketEntries,
 } from '@project/common/dictionary-statistics';
 import type { RichTextWindow, RenderedRichText } from '@project/common/annotations';
-import {
-    getAnnotationsHtml,
-    renderRichTextWindow,
-    emptyRichTextWindow,
-    renderRichTextForSubtitle,
-} from '@project/common/annotations';
+import { renderRichTextWindow, emptyRichTextWindow, renderRichTextForSubtitle } from '@project/common/annotations';
 import { timeDurationDisplay } from '@project/common/util';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -208,7 +203,7 @@ const SentenceRowCells = React.memo(function SentenceRowCells({
                 <span
                     style={tokenAnnotationStyleValues(tokenAnnotationConfig)}
                     dangerouslySetInnerHTML={{
-                        __html: getAnnotationsHtml(sentence.text, rendered?.richText, rendered?.richTextOnHover),
+                        __html: rendered?.richText ?? sentence.text,
                     }}
                 />
             </TableCell>

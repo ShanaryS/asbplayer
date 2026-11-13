@@ -1,6 +1,8 @@
 import {
     areDictionaryPlaybackConfigsEqual,
     areTokenAnnotationConfigsEqual,
+    areDictionaryTracksEqual,
+    areDictionaryTracksRenderOnly,
     getEnabledAnnotations,
     getEnabledAnnotationsForHover,
     dictionaryTrackEnabled,
@@ -20,6 +22,14 @@ import type { AutoPausePreferenceEdge } from '.';
 import { describe, expect, it } from '@jest/globals';
 import { AutoPausePreference } from '@project/common/src/model';
 import { defaultSettings } from '@project/common/settings/settings-provider';
+
+it('treats per-word hover changes as render-only while invalidating rendered settings', () => {
+    const previous = defaultSettings.dictionaryTracks[0];
+    const changed = JSON.parse(JSON.stringify(previous));
+    changed.dictionaryTokenAnnotationConfig.video.gloss.hoverPerToken = true;
+    expect(areDictionaryTracksEqual(previous, changed)).toBe(false);
+    expect(areDictionaryTracksRenderOnly(previous, changed)).toBe(true);
+});
 
 it('compares dictionary playback fields by value regardless of object key order', () => {
     const config = defaultSettings.dictionaryTracks[0].dictionaryPlaybackConfig;
@@ -255,10 +265,10 @@ it.each([
         const visualAnnotations = { color: false, reading: false, frequency: false, gloss: false, pitchAccent: false };
         expect(getEnabledAnnotations(track)).toEqual(visualAnnotations);
         for (const target of ['video', 'subtitlePlayer'] as const) {
-            expect(getEnabledAnnotationsForHover(getEnabledAnnotations(track), track, target, false)).toEqual(
+            expect(getEnabledAnnotationsForHover(getEnabledAnnotations(track), track, target, 'none')).toEqual(
                 visualAnnotations
             );
-            expect(getEnabledAnnotationsForHover(getEnabledAnnotations(track), track, target, true)).toEqual(
+            expect(getEnabledAnnotationsForHover(getEnabledAnnotations(track), track, target, 'token')).toEqual(
                 visualAnnotations
             );
         }

@@ -61,6 +61,30 @@ it('starts at default settings', async () => {
     expect(initialSettings.keyBindSet.jumpToNextToken).toEqual({ keys: 'Q+E' });
 });
 
+it('defaults missing per-word hover settings and preserves saved choices on reads and writes', async () => {
+    const storage = new MockSettingsStorage();
+    const track = JSON.parse(JSON.stringify(defaultSettings.dictionaryTracks[0]));
+    for (const target of ['video', 'subtitlePlayer'] as const) {
+        for (const annotation of Object.values(track.dictionaryTokenAnnotationConfig[target])) {
+            delete (annotation as { hoverPerToken?: boolean }).hoverPerToken;
+        }
+        track.dictionaryTokenAnnotationConfig[target].reading.onHoverEnabled = true;
+        track.dictionaryTokenAnnotationConfig[target].gloss.hoverPerToken = true;
+    }
+    storage.setData({ dictionaryTracks: [track] });
+    const provider = new SettingsProvider(storage);
+    const tracks = await provider.getSingle('dictionaryTracks');
+    await provider.set({ dictionaryTracks: tracks });
+    const restored = await provider.getSingle('dictionaryTracks');
+    for (const target of ['video', 'subtitlePlayer'] as const) {
+        const config = restored[0].dictionaryTokenAnnotationConfig[target];
+        expect(config.reading.onHoverEnabled).toBe(true);
+        for (const [annotation, options] of Object.entries(config)) {
+            expect(options.hoverPerToken).toBe(annotation === 'gloss');
+        }
+    }
+});
+
 it('keeps playback-owned settings separate from UI settings', () => {
     expect(saveOnlySettings).toEqual(['lastSubtitleOffset', 'lastPlaybackModes', 'lastPlaybackPositions']);
     expect(saveOnlySettings).not.toContain('playbackRate');

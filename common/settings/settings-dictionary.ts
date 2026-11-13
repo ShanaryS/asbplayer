@@ -161,6 +161,7 @@ export interface TokenAnnotationTriggerOptions {
 
 export interface TokenAnnotationConfigOptions {
     onHoverEnabled: boolean;
+    hoverPerToken: boolean;
     size: number;
 }
 
@@ -356,6 +357,7 @@ export function areTokenAnnotationTriggerOptionsEqual(
 
 const tokenAnnotationConfigOptionsComparators: FieldComparators<TokenAnnotationConfigOptions> = {
     onHoverEnabled: (a, b) => a === b,
+    hoverPerToken: (a, b) => a === b,
     size: (a, b) => a === b,
 };
 
@@ -376,6 +378,7 @@ export function areTokenAnnotationConfigOptionsEqual(
 
 const tokenAnnotationConfigOptionsRenderOnlyComparators: FieldComparators<TokenAnnotationConfigOptions> = {
     onHoverEnabled: () => true,
+    hoverPerToken: () => true,
     size: () => true,
 };
 
@@ -549,12 +552,14 @@ export function getEnabledAnnotationsForHover(
     enabledAnnotations: EnabledAnnotations,
     dt: DictionaryTrack,
     target: TokenAnnotationConfigTarget,
-    onHoverEnabled: boolean
+    hover: 'none' | 'cue' | 'token'
 ): EnabledAnnotations {
     const config = dt.dictionaryTokenAnnotationConfig[target];
     const enabledAnnotationsForHover: EnabledAnnotations = {} as any;
     for (const ano of Object.keys(enabledAnnotations) as (keyof EnabledAnnotations)[]) {
-        enabledAnnotationsForHover[ano] = enabledAnnotations[ano] && config[ano].onHoverEnabled === onHoverEnabled;
+        enabledAnnotationsForHover[ano] =
+            enabledAnnotations[ano] &&
+            (!config[ano].onHoverEnabled || hover === 'token' || (hover === 'cue' && !config[ano].hoverPerToken));
     }
     return enabledAnnotationsForHover;
 }
@@ -716,18 +721,18 @@ function makeDefaultDictionaryTokenAnnotationConfigs(): DictionaryTrack['diction
     return {
         colorizeEnabled: false,
         video: {
-            color: { onHoverEnabled: false, size: 1 },
-            reading: { onHoverEnabled: false, size: 0.5 },
-            frequency: { onHoverEnabled: false, size: 0.3 },
-            gloss: { onHoverEnabled: true, size: 0.5 },
-            pitchAccent: { onHoverEnabled: true, size: 0.1 },
+            color: { onHoverEnabled: false, hoverPerToken: false, size: 1 },
+            reading: { onHoverEnabled: false, hoverPerToken: false, size: 0.5 },
+            frequency: { onHoverEnabled: false, hoverPerToken: false, size: 0.3 },
+            gloss: { onHoverEnabled: true, hoverPerToken: false, size: 0.5 },
+            pitchAccent: { onHoverEnabled: true, hoverPerToken: false, size: 0.1 },
         },
         subtitlePlayer: {
-            color: { onHoverEnabled: false, size: 1 },
-            reading: { onHoverEnabled: false, size: 0.5 },
-            frequency: { onHoverEnabled: false, size: 0.5 },
-            gloss: { onHoverEnabled: true, size: 0.5 },
-            pitchAccent: { onHoverEnabled: true, size: 0.1 },
+            color: { onHoverEnabled: false, hoverPerToken: false, size: 1 },
+            reading: { onHoverEnabled: false, hoverPerToken: false, size: 0.5 },
+            frequency: { onHoverEnabled: false, hoverPerToken: false, size: 0.5 },
+            gloss: { onHoverEnabled: true, hoverPerToken: false, size: 0.5 },
+            pitchAccent: { onHoverEnabled: true, hoverPerToken: false, size: 0.1 },
         },
         onStatuses: [
             { reading: false, frequency: false, gloss: false, pitchAccent: false },
@@ -915,6 +920,9 @@ export const ensureDictionaryTracksConsistency = ({ dictionaryTracks }: Partial<
             ],
         ] as const) {
             if (target.gloss === undefined) (target as any).gloss = { ...defaultTarget.gloss };
+            for (const annotation of Object.values(target)) {
+                if (annotation.hoverPerToken === undefined) annotation.hoverPerToken = false;
+            }
         }
         for (const trigger of [
             ...dt.dictionaryTokenAnnotationConfig.onStatuses,

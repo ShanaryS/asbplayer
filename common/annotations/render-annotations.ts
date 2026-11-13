@@ -52,29 +52,28 @@ export interface InternalToken extends Token {
     __usingExternalReadings?: boolean;
 }
 
-export const getAnnotationsHtml = (text: string, richText: string | undefined, richTextOnHover: string | undefined) => {
-    if (!richTextOnHover) return richText ?? text;
-    return `<span class="asbplayer-subtitle-text">${richText ?? text}</span><span class="asbplayer-subtitle-rich">${richTextOnHover}</span>`;
-};
-
 export const getAnnotationsForRender = (dt: DictionaryTrack, target: TokenAnnotationConfigTarget) => {
     const enabledAnnotations = getEnabledAnnotations(dt);
-    const enabledAnnotationsUnhover = getEnabledAnnotationsForHover(enabledAnnotations, dt, target, false);
-    const enabledAnnotationsHover = getEnabledAnnotationsForHover(enabledAnnotations, dt, target, true);
+    const config = dt.dictionaryTokenAnnotationConfig[target];
+    const hasHoverAnnotations = (Object.keys(enabledAnnotations) as (keyof EnabledAnnotations)[]).some(
+        (annotation) => enabledAnnotations[annotation] && config[annotation].onHoverEnabled
+    );
     const glossSize = dt.dictionaryTokenAnnotationConfig[target].gloss.size;
     return {
         dt,
         glossSize,
-        isRichTextEnabled: Object.values(enabledAnnotationsUnhover).some((v) => v),
-        richTextEnabledAnnotations: enabledAnnotationsUnhover, // Hide annotations configured to appear only on hover
-        isRichTextOnHoverEnabled: Object.values(enabledAnnotationsHover).some((v) => v),
-        richTextOnHoverEnabledAnnotations: enabledAnnotations, // Show all enabled annotations on hover
+        enabledAnnotations: getEnabledAnnotationsForHover(enabledAnnotations, dt, target, 'none'),
+        hoverAnnotations: hasHoverAnnotations
+            ? {
+                  cue: getEnabledAnnotationsForHover(enabledAnnotations, dt, target, 'cue'),
+                  token: getEnabledAnnotationsForHover(enabledAnnotations, dt, target, 'token'),
+              }
+            : undefined,
     };
 };
 
 export interface RenderedRichText {
     richText?: string;
-    richTextOnHover?: string;
 }
 
 interface CachedRenderedRichText extends RenderedRichText {
@@ -148,24 +147,13 @@ export const renderRichTextOntoSubtitles = (
             if (!visibility.hideWholeSubtitle) hiddenTokens = visibility.hiddenTokens;
         }
         const richText = computeRichText(subtitle.text, subtitle.tokenization, {
+            ...ta,
             hiddenTokens,
-            dt: ta.dt,
-            enabledAnnotations: ta.richTextEnabledAnnotations,
             allowAsciiReading,
-            glossSize: ta.glossSize,
         });
-        const richTextOnHover = ta.isRichTextOnHoverEnabled
-            ? computeRichText(subtitle.text, subtitle.tokenization, {
-                  dt: ta.dt,
-                  hiddenTokens,
-                  enabledAnnotations: ta.richTextOnHoverEnabledAnnotations,
-                  allowAsciiReading,
-                  glossSize: ta.glossSize,
-              })
-            : undefined;
 
-        if (richText !== undefined || richTextOnHover !== undefined) {
-            rendered.set(subtitle.index, { richText, richTextOnHover });
+        if (richText !== undefined) {
+            rendered.set(subtitle.index, { richText });
         }
     }
 
@@ -241,6 +229,7 @@ interface TokenStyleState {
     allowAsciiReading: boolean;
     glossSize: number;
     hiddenTokens?: ReadonlySet<Token>;
+    hoverAnnotations?: { cue: EnabledAnnotations; token: EnabledAnnotations };
 }
 
 export const computeRichText = (fullText: string, tokenization: Tokenization, ss: TokenStyleState) => {
@@ -248,16 +237,39 @@ export const computeRichText = (fullText: string, tokenization: Tokenization, ss
     if (!tokenization.tokens.length) return;
 
     const parts: string[] = [];
-    const prevPitch: PitchAccentContext = {}; // Context from the previous token to correctly determine pitch for attached particle
+    // Each hover variant needs its own history across tokens for attached-particle pitch.
+    const variants: { state: TokenStyleState; pitch: PitchAccentContext }[] = [
+        ss,
+        ...(ss.hoverAnnotations
+            ? [
+                  { ...ss, enabledAnnotations: ss.hoverAnnotations.cue },
+                  { ...ss, enabledAnnotations: ss.hoverAnnotations.token },
+              ]
+            : []),
+    ].map((state) => ({ state, pitch: {} }));
     iterateOverStringInBlocks(
         fullText,
         (_, blockIndex) => tokenization.tokens[blockIndex],
         (left, right, token?: Token) => {
             if (token === undefined) {
-                clearPitchAccentContext(prevPitch);
+                for (const variant of variants) clearPitchAccentContext(variant.pitch);
                 parts.push(fullText.substring(left, right));
             } else {
-                parts.push(applyTokenStyle(fullText, token, prevPitch, ss));
+                const [base, cue = base, word = cue] = variants.map(({ state, pitch }) =>
+                    applyTokenStyle(fullText, token, pitch, state)
+                );
+                if (base === cue && cue === word) {
+                    parts.push(base);
+                } else {
+                    const cueClass = cue !== base ? ' asb-token-hover-cue' : '';
+                    const wordClass = word !== cue ? ' asb-token-hover-word' : '';
+                    parts.push(
+                        `<span class="asb-token-hover${cueClass}${wordClass}"><span class="asb-token-base">${base}</span>` +
+                            (cueClass ? `<span class="asb-token-on-cue-hover">${cue}</span>` : '') +
+                            (wordClass ? `<span class="asb-token-on-word-hover">${word}</span>` : '') +
+                            '</span>'
+                    );
+                }
             }
         }
     );

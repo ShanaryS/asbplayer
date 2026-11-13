@@ -20,6 +20,33 @@ it('validates the default settings', () => {
     validateSettings(defaultSettings);
 });
 
+it('round trips per-word hover choices and accepts exports that predate them', () => {
+    const settings = JSON.parse(JSON.stringify(defaultSettings));
+    const config = settings.dictionaryTracks[0].dictionaryTokenAnnotationConfig;
+    config.video.gloss.hoverPerToken = true;
+    config.subtitlePlayer.pitchAccent.hoverPerToken = true;
+    const restored = validateSettings(settingsForExport(settings));
+    expect(restored.dictionaryTracks?.[0].dictionaryTokenAnnotationConfig).toEqual(config);
+
+    for (const track of settings.dictionaryTracks) {
+        for (const target of ['video', 'subtitlePlayer'] as const) {
+            for (const options of Object.values(track.dictionaryTokenAnnotationConfig[target])) {
+                delete (options as { hoverPerToken?: boolean }).hoverPerToken;
+            }
+        }
+    }
+    const migrated = validateSettings(settings);
+    for (const track of migrated.dictionaryTracks ?? []) {
+        for (const target of ['video', 'subtitlePlayer'] as const) {
+            for (const options of Object.values(track.dictionaryTokenAnnotationConfig[target])) {
+                expect(options.hoverPerToken).toBe(false);
+            }
+        }
+    }
+    settings.dictionaryTracks[0].dictionaryTokenAnnotationConfig.video.gloss.hoverPerToken = 'word';
+    expect(() => validateSettings(settings)).toThrow('Settings validation failed');
+});
+
 it('fails validation when an unknown key is encountered', () => {
     expect(() => validateSettings({ ...defaultSettings, asdf: 'jkl;' })).toThrow("Unknown key 'asdf'");
 });

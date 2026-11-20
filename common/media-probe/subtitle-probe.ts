@@ -2,6 +2,8 @@ import ByteReader from '@project/common/media-probe/byte-reader';
 import { ebmlHeaderId, ebmlHeaderIdBytes } from '@project/common/media-probe/ebml';
 import { isMatroskaWebVttCodec, matroskaSubtitleTracks } from '@project/common/media-probe/matroska';
 import { isoBmffSubtitleTracks, isoBmffBoxTypeOffset, isoBmffBoxTypeBytes } from '@project/common/media-probe/iso-bmff';
+import { ffmpegSubtitleFormats } from '@project/ffmpeg/protocol';
+import type { SubtitleOutputFormat } from '@project/ffmpeg/protocol';
 
 export interface EmbeddedSubtitleTrack {
     /** Zero-based position among subtitle tracks, including unsupported codecs. */
@@ -11,7 +13,7 @@ export interface EmbeddedSubtitleTrack {
     codec: string;
     language?: string;
     title?: string;
-    outputFormat?: 'srt';
+    outputFormat?: SubtitleOutputFormat;
 }
 
 const matroskaCodecs: Record<string, string> = {
@@ -26,7 +28,17 @@ const matroskaCodecs: Record<string, string> = {
     S_DVBSUB: 'dvb_subtitle',
 };
 const mp4Codecs: Record<string, string> = { tx3g: 'mov_text', text: 'mov_text', wvtt: 'webvtt', stpp: 'ttml' };
-const textCodecs = new Set(['subrip', 'text', 'ass', 'ssa', 'webvtt', 'mov_text']);
+const outputFormatsByCodec: Record<string, SubtitleOutputFormat> = {
+    subrip: ffmpegSubtitleFormats.text.extension,
+    text: ffmpegSubtitleFormats.text.extension,
+    ass: ffmpegSubtitleFormats.text.extension,
+    ssa: ffmpegSubtitleFormats.text.extension,
+    webvtt: ffmpegSubtitleFormats.text.extension,
+    mov_text: ffmpegSubtitleFormats.text.extension,
+    hdmv_pgs_subtitle: ffmpegSubtitleFormats.image.extension,
+    dvd_subtitle: ffmpegSubtitleFormats.image.extension,
+    dvb_subtitle: ffmpegSubtitleFormats.image.extension,
+};
 
 const displayNamesByCodec: Record<string, string> = {
     subrip: 'SRT',
@@ -57,7 +69,7 @@ const subtitle = (
     codec,
     language,
     title,
-    ...(supported && textCodecs.has(codec) ? { outputFormat: 'srt' } : {}),
+    outputFormat: supported ? outputFormatsByCodec[codec] : undefined,
 });
 
 /** Discover dedicated subtitle tracks from container metadata, without loading FFmpeg. */
@@ -86,7 +98,8 @@ export const probeSubtitleTracks = async (blob: Blob, signal: AbortSignal): Prom
                 mp4Codecs[track.format] ?? track.format,
                 track.language,
                 track.title,
-                trackKey !== undefined && (track.format === 'tx3g' || track.format === 'text')
+                trackKey !== undefined &&
+                    (track.format === 'tx3g' || track.format === 'text' || track.format === 'dvd_subtitle')
             );
         });
     }

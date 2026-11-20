@@ -69,7 +69,7 @@ export const extractSubtitleTracks = async ({
                 trackKey: result.trackKey,
                 blob: new Blob(parts, { type: result.mimeType }),
             };
-            return { ...output, format: 'srt' };
+            return { ...output, format: result.extension };
         });
         asbTrace('app/subtitles', 'Finished embedded subtitle extraction', {
             ...context,

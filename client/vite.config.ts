@@ -85,8 +85,8 @@ export default defineConfig(async ({ mode, isPreview }) => {
                     ],
                     start_url: '.',
                     display: 'standalone',
-                    theme_color: '#000000',
-                    background_color: '#ffffff',
+                    theme_color: '#ff1f62',
+                    background_color: '#121212',
                     orientation: 'any',
                 },
                 devOptions: {

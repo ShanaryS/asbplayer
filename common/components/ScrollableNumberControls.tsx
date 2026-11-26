@@ -3,17 +3,24 @@ import PlaybackRateInput from '@project/common/components/PlaybackRateInput';
 import SubtitleOffsetInput from '@project/common/components/SubtitleOffsetInput';
 import TimeDisplay from '@project/common/components/TimeDisplay';
 import type { MutableRefObject } from 'react';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ControlType } from '..';
 
 const containerHeight = 40;
 const scrollThreshold = containerHeight / 2 + 1;
+const initialScrollFallbackMs = 800;
+
+const clampControlType = (controlType: number): ControlType => {
+    if (!Number.isFinite(controlType)) return ControlType.timeDisplay;
+    return Math.max(ControlType.timeDisplay, Math.min(ControlType.playbackRate, Math.round(controlType)));
+};
 
 const useStyles = makeStyles(() => {
     return {
         container: {
             height: containerHeight,
             overflowY: 'scroll',
+            overscrollBehaviorY: 'contain',
             scrollSnapType: 'y mandatory',
             scrollbarWidth: 'none',
             '&::-webkit-scrollbar': {
@@ -65,13 +72,12 @@ const ScrollableNumberControls = ({
 }: Props) => {
     const classes = useStyles();
     const [controlType, setControlType] = useState<ControlType>(ControlType.timeDisplay);
-    const lastScrollTop = useRef<number>(0);
     const [initialScroll, setInitialScroll] = useState<InitialScrollState>(InitialScrollState.notStarted);
-    const initialScrollRef = useRef<InitialScrollState>(undefined);
+    const initialScrollRef = useRef<InitialScrollState>(initialScroll);
     initialScrollRef.current = initialScroll;
-    const containerRef = useRef<HTMLDivElement>(undefined);
+    const containerRef = useRef<HTMLDivElement | null>(null);
     const programmaticallyScrollingTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-    const controlTypeRef = useRef<number>(controlType);
+    const controlTypeRef = useRef<ControlType>(controlType);
     const onScrollToRef = useRef<(controlType: ControlType) => void>(undefined);
     onScrollToRef.current = onScrollTo;
     controlTypeRef.current = controlType;
@@ -79,17 +85,13 @@ const ScrollableNumberControls = ({
     const handleScroll = useCallback(
         (e: React.UIEvent<HTMLDivElement>) => {
             const currentScrollTop = e.currentTarget.scrollTop;
-            const goingDown = currentScrollTop > lastScrollTop.current;
-            const newControlType = goingDown
-                ? Math.ceil(Math.floor(currentScrollTop) / containerHeight)
-                : Math.floor(currentScrollTop / containerHeight);
+            // Clamp to valid enum bounds so elastic overscroll (e.g. iOS bounce past 0 or max) cannot emit invalid values.
+            const newControlType = clampControlType(currentScrollTop / containerHeight);
 
             if (initialScroll === InitialScrollState.ended && newControlType !== controlType) {
                 onScrollTo(newControlType);
                 setControlType(newControlType);
             }
-
-            lastScrollTop.current = currentScrollTop;
         },
         [onScrollTo, initialScroll, controlType]
     );
@@ -112,10 +114,10 @@ const ScrollableNumberControls = ({
         const goingDown = e.deltaY > 0;
         let didProgrammaticallyScroll = false;
 
-        if (goingDown && controlTypeRef.current < 2) {
+        if (goingDown && controlTypeRef.current < ControlType.playbackRate) {
             containerRef.current?.scrollBy({ top: scrollThreshold, behavior: 'smooth' });
             didProgrammaticallyScroll = true;
-        } else if (!goingDown && controlTypeRef.current > 0) {
+        } else if (!goingDown && controlTypeRef.current > ControlType.timeDisplay) {
             containerRef.current?.scrollBy({ top: -scrollThreshold, behavior: 'smooth' });
             didProgrammaticallyScroll = true;
         }
@@ -132,59 +134,94 @@ const ScrollableNumberControls = ({
         }
     }, []);
 
-    const handleDivRef = useCallback(
-        (div: HTMLDivElement) => {
-            if (initialScroll > InitialScrollState.notStarted) {
-                return;
+    useEffect(() => {
+        const div = containerRef.current;
+        if (!div) return;
+
+        const clearProgrammaticScroll = () => {
+            programmaticallyScrollingTimeoutRef.current = undefined;
+        };
+        div.addEventListener('wheel', handleWheel, { passive: false });
+        div.addEventListener('scrollend', clearProgrammaticScroll);
+
+        return () => {
+            div.removeEventListener('wheel', handleWheel);
+            div.removeEventListener('scrollend', clearProgrammaticScroll);
+            if (programmaticallyScrollingTimeoutRef.current !== undefined) {
+                clearTimeout(programmaticallyScrollingTimeoutRef.current);
+                programmaticallyScrollingTimeoutRef.current = undefined;
             }
+        };
+    }, [handleWheel]);
 
-            if (div) {
-                if (initialControlType === undefined) {
-                    setInitialScroll(InitialScrollState.ended);
-                } else {
-                    setTimeout(() => {
-                        div.scrollTop = containerHeight * 2;
-                        const transitionThroughScroll = (top: number, destinationControlType: ControlType) => {
-                            div.scroll({ top, behavior: 'smooth' });
-                            div.addEventListener('scrollend', (e: Event) => {
-                                if ((e.currentTarget as HTMLDivElement)?.scrollTop >= containerHeight * 2) {
-                                    // This is a result of the initial scrollTop = containerHeight * 2
-                                    // to begin  the initial scroll - do not transition yet
-                                    return;
-                                }
+    useEffect(() => {
+        if (initialScrollRef.current > InitialScrollState.notStarted) return;
 
-                                // We can transition now that we are actually coming out of the initial scroll
-                                if (initialScrollRef.current === InitialScrollState.started) {
-                                    onScrollToRef.current?.(destinationControlType);
-                                    setControlType(destinationControlType);
-                                    setInitialScroll(InitialScrollState.ended);
-                                }
-                            });
-                            setInitialScroll(InitialScrollState.started);
-                        };
+        const div = containerRef.current;
+        if (!div) return;
 
-                        if (initialControlType === 1) {
-                            transitionThroughScroll(containerHeight + 1, initialControlType);
-                        } else if (initialControlType === 0) {
-                            transitionThroughScroll(0, initialControlType);
-                        } else {
-                            setInitialScroll(InitialScrollState.ended);
-                        }
-                    }, 0);
-                }
+        if (initialControlType === undefined) {
+            setInitialScroll(InitialScrollState.ended);
+            return;
+        }
 
-                div.addEventListener('wheel', handleWheel, { passive: false });
-                div.addEventListener('scrollend', () => {
-                    programmaticallyScrollingTimeoutRef.current = undefined;
-                });
-                containerRef.current = div;
+        const destinationControlType = clampControlType(initialControlType);
+        const finishInitialScroll = (settledControlType: ControlType) => {
+            if (initialScrollRef.current === InitialScrollState.ended) return;
+            initialScrollRef.current = InitialScrollState.ended;
+            onScrollToRef.current?.(settledControlType);
+            setControlType(settledControlType);
+            setInitialScroll(InitialScrollState.ended);
+        };
+
+        if (destinationControlType === ControlType.playbackRate) {
+            div.scrollTop = containerHeight * 2;
+            finishInitialScroll(ControlType.playbackRate);
+            return;
+        }
+
+        const targetTop = destinationControlType * containerHeight;
+        if (!('onscrollend' in window) || typeof div.scroll !== 'function') {
+            div.scrollTop = targetTop;
+            finishInitialScroll(destinationControlType);
+            return;
+        }
+
+        initialScrollRef.current = InitialScrollState.started;
+        setInitialScroll(InitialScrollState.started);
+        div.scrollTop = containerHeight * 2;
+
+        const handleInitialScrollEnd = () => {
+            if (div.scrollTop >= containerHeight * 2) return;
+            div.removeEventListener('scrollend', handleInitialScrollEnd);
+            clearTimeout(fallbackTimer);
+            finishInitialScroll(clampControlType(div.scrollTop / containerHeight));
+        };
+
+        div.addEventListener('scrollend', handleInitialScrollEnd);
+        const frameId = requestAnimationFrame(() => {
+            div.scroll({ top: targetTop, behavior: 'smooth' });
+        });
+        const fallbackTimer = setTimeout(() => {
+            div.removeEventListener('scrollend', handleInitialScrollEnd);
+            if (initialScrollRef.current === InitialScrollState.started) {
+                div.scrollTop = targetTop;
+                finishInitialScroll(destinationControlType);
             }
-        },
-        [initialScroll, initialControlType, handleWheel]
-    );
+        }, initialScrollFallbackMs);
+
+        return () => {
+            cancelAnimationFrame(frameId);
+            clearTimeout(fallbackTimer);
+            div.removeEventListener('scrollend', handleInitialScrollEnd);
+            if (initialScrollRef.current === InitialScrollState.started) {
+                initialScrollRef.current = InitialScrollState.notStarted;
+            }
+        };
+    }, [initialControlType]);
 
     return (
-        <div ref={handleDivRef} onScroll={handleScroll} className={classes.container}>
+        <div ref={containerRef} onScroll={handleScroll} className={classes.container}>
             <TimeDisplay
                 currentMilliseconds={currentMilliseconds}
                 totalMilliseconds={totalMilliseconds}

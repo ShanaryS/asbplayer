@@ -69,7 +69,7 @@ import type {
     PlayModeTransition,
 } from '@project/common/playback/controllers/playback-mode-controller';
 
-import { asbTrace } from '@project/common/util/log';
+import { asbError, asbTrace } from '@project/common/util/log';
 import {
     HoveredToken,
     mergeSubtitleAnnotations,
@@ -87,6 +87,8 @@ import Controls from '@project/common/app/components/Controls';
 import type { Point } from '@project/common/app/components/Controls';
 
 import PlayerChannel from '@project/common/app/services/player-channel';
+import { inputAcceptFileExtensions } from '@project/common/app/services/media-sources';
+import { supportsFileSystemAccess } from '@project/common/file-system-access';
 import type ChromeExtension from '@project/common/app/services/chrome-extension';
 import Alert, { AlertStack } from '@project/common/app/components/Alert';
 import MuiAlert from '@mui/material/Alert';
@@ -96,9 +98,13 @@ import { useVideoLoadNotifications } from '@project/common/app/hooks/use-video-l
 import type { AudioSeekableRange } from '@project/common/audio-transcode/streaming-audio';
 import type { TranscodedAudioPayload } from '@project/common/src/message';
 import Button from '@mui/material/Button';
+import FastForwardIcon from '@mui/icons-material/FastForward';
+import FastRewindIcon from '@mui/icons-material/FastRewind';
 import { useSubtitleDomCache } from '@project/common/app/hooks/use-subtitle-dom-cache';
 import { useAppKeyBinder } from '@project/common/app/hooks/use-app-key-binder';
 import { useRecipeKeyBindings } from '@project/common/hooks/use-recipe-key-bindings';
+import { useDoubleTapSeek } from '@project/common/app/hooks/use-double-tap-seek';
+import type { TapSide } from '@project/common/app/hooks/use-double-tap-seek';
 import { useSwipe } from '@project/common/app/hooks/use-swipe';
 import type { Direction } from '@project/common/app/hooks/use-swipe';
 
@@ -120,11 +126,17 @@ import useLastScrollableControlType from '@project/common/hooks/use-last-scrolla
 import type { Theme } from '@mui/material/styles';
 
 const overlayContainerHeight = 48;
+const topControlsHeight = 48;
+
+const formatDoubleTapSeekDelta = (deltaMs: number): string => {
+    const roundedSeconds = Math.round(Math.abs(deltaMs) / 100) / 10;
+    return `${deltaMs < 0 ? '-' : '+'}${roundedSeconds}s`;
+};
 interface ExperimentalHTMLVideoElement extends HTMLVideoElement {
     readonly audioTracks: any;
 }
 
-const useStyles = makeStyles<Theme>((theme) => ({
+const useStyles = makeStyles<Theme, { appBarHidden: boolean }>(() => ({
     root: {
         position: 'relative',
         backgroundColor: 'black',
@@ -134,6 +146,7 @@ const useStyles = makeStyles<Theme>((theme) => ({
         flexDirection: 'column',
         justifyContent: 'center',
         alignItems: 'center',
+        touchAction: 'manipulation',
     },
     video: {
         margin: 'auto',
@@ -144,7 +157,33 @@ const useStyles = makeStyles<Theme>((theme) => ({
     mobileOverlay: {
         position: 'absolute',
         zIndex: 10,
-        bottom: theme.spacing(1.5),
+        top: ({ appBarHidden }) =>
+            appBarHidden ? `calc(${topControlsHeight}px + env(safe-area-inset-top, 0px))` : topControlsHeight,
+    },
+    doubleTapSeekIndicator: {
+        position: 'absolute',
+        top: '50%',
+        transform: 'translateY(-50%)',
+        zIndex: 10,
+        pointerEvents: 'none',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 2,
+        color: '#fff',
+        backgroundColor: 'rgba(0, 0, 0, 0.55)',
+        borderRadius: 24,
+        padding: '10px 18px',
+        fontSize: 16,
+        fontWeight: 600,
+        userSelect: 'none',
+    },
+    doubleTapSeekLeft: {
+        left: '10%',
+    },
+    doubleTapSeekRight: {
+        right: '10%',
     },
 }));
 
@@ -396,12 +435,12 @@ export default function VideoPlayer({
     onSettingsChanged,
     profile,
 }: Props) {
-    const classes = useStyles();
     const { t } = useTranslation();
     const poppingInRef = useRef<boolean>(undefined);
     const onSettingsChangedRef = useRef(onSettingsChanged);
     onSettingsChangedRef.current = onSettingsChanged;
     const videoRef = useRef<ExperimentalHTMLVideoElement>(undefined);
+    const fileInputRef = useRef<HTMLInputElement>(null);
     const [video, setVideo] = useState<ExperimentalHTMLVideoElement>();
     const playbackEngineRef = useRef<PlaybackEngine<IndexedSubtitleModel>>(undefined);
     const profileRef = useRef(profile);
@@ -462,10 +501,13 @@ export default function VideoPlayer({
             userAgent: navigator.userAgent,
             standalone: (navigator as Navigator & { standalone?: boolean }).standalone,
             inFrame: window !== window.top,
+            isMobile,
+            playsInline: video.playsInline,
+            viewport: { width: window.innerWidth, height: window.innerHeight },
         });
     }, [video]);
     const [playerChannelSubscribed, setPlayerChannelSubscribed] = useState<boolean>(false);
-    const { fullscreen, requestFullscreen } = useFullscreen();
+    const { fullscreen, requestFullscreen, supported: fullscreenSupported } = useFullscreen();
     const playing = () => !videoRef.current?.paused || false;
     const [lengthMs, setLengthMs] = useState<number>(0);
     const lengthMsRef = useRef(lengthMs);
@@ -516,6 +558,7 @@ export default function VideoPlayer({
     );
     const [subtitlePlayerHidden, setSubtitlePlayerHidden] = useState<boolean>(false);
     const [appBarHidden, setAppBarHidden] = useState<boolean>(playbackPreferences.theaterMode);
+    const classes = useStyles({ appBarHidden });
     const [subtitleAlignments, setSubtitleAlignments] = useState<SubtitleAlignment[]>(
         allSubtitleAlignments(subtitleSettings)
     );
@@ -740,6 +783,29 @@ export default function VideoPlayer({
     }, []);
 
     useEffect(() => {
+        if (!video || subtitles.length) return;
+
+        // PlaybackEngine defers binding timing while no subtitles are loaded.
+        const syncUnboundPlaybackState = () => {
+            if (playbackEngineRef.current?.bound) return;
+            clock.setTime(video.currentTime * 1000, { paused: video.paused });
+            updatePlayerState();
+        };
+
+        video.addEventListener('play', syncUnboundPlaybackState);
+        video.addEventListener('pause', syncUnboundPlaybackState);
+        video.addEventListener('ended', syncUnboundPlaybackState);
+        video.addEventListener('seeked', syncUnboundPlaybackState);
+
+        return () => {
+            video.removeEventListener('play', syncUnboundPlaybackState);
+            video.removeEventListener('pause', syncUnboundPlaybackState);
+            video.removeEventListener('ended', syncUnboundPlaybackState);
+            video.removeEventListener('seeked', syncUnboundPlaybackState);
+        };
+    }, [clock, subtitles.length, updatePlayerState, video]);
+
+    useEffect(() => {
         if (!video) return;
 
         asbTrace('playback/video-player', 'Creating video playback owner', {
@@ -787,11 +853,11 @@ export default function VideoPlayer({
                 },
                 {
                     onPlay: () => {
-                        clock.start();
+                        clock.setTime(video.currentTime * 1000, { paused: video.paused });
                         updatePlayerState();
                     },
                     onPause: () => {
-                        clock.stop();
+                        clock.setTime(video.currentTime * 1000, { paused: true });
                         updatePlayerState();
                     },
                     onSeeked: (timestampMs) => {
@@ -817,11 +883,11 @@ export default function VideoPlayer({
                 clearAutoPauseTokenSelection: () => tokenSelectionRef.current?.clearPauseTokenSelection(),
                 pause: () => {
                     video.pause();
-                    clock.stop();
+                    clock.setTime(video.currentTime * 1000, { paused: true });
                 },
                 play: async () => {
                     await video.play();
-                    clock.start();
+                    clock.setTime(video.currentTime * 1000, { paused: video.paused });
                 },
                 seek: async (timestampMs) => {
                     const actualTimestampMs = seekWithNudge(video, timestampMs / 1000) * 1000;
@@ -1302,7 +1368,25 @@ export default function VideoPlayer({
     );
 
     const handleLoadFiles = useCallback(() => {
+        if (!supportsFileSystemAccess()) {
+            fileInputRef.current?.click();
+            return;
+        }
         playerChannel.loadFiles();
+    }, [playerChannel]);
+
+    const handleFileInputChange = useCallback(() => {
+        const selectedFiles = fileInputRef.current?.files;
+        if (!selectedFiles?.length) return;
+
+        const files = [...selectedFiles];
+        fileInputRef.current!.value = '';
+        try {
+            playerChannel.loadFiles(files);
+        } catch (error) {
+            asbError('app/files', 'Failed to post selected files to host player:', error);
+            onErrorRef.current?.(String(error));
+        }
     }, [playerChannel]);
 
     const handleLoadSubtitles = useCallback(() => {
@@ -2105,11 +2189,6 @@ export default function VideoPlayer({
 
     const handlePlayMode = useCallback((targetMode: PlayMode) => togglePlaybackMode(targetMode), [togglePlaybackMode]);
 
-    const handleClose = useCallback(() => {
-        playerChannel.close();
-        window.close();
-    }, [playerChannel]);
-
     const handleHideSubtitlePlayerToggle = useCallback(() => {
         playerChannel.hideSubtitlePlayerToggle();
     }, [playerChannel]);
@@ -2146,6 +2225,58 @@ export default function VideoPlayer({
     }, [playerChannel]);
 
     const handleDoubleClick = useCallback(() => handleFullscreenToggle(), [handleFullscreenToggle]);
+
+    const doubleTapSeekBurstRef = useRef<{ side: TapSide; originMs: number; targetMs: number } | undefined>(undefined);
+    const confirmDoubleTapSeekRef = useRef<(actualDeltaMs: number) => void>(() => {});
+    const handleDoubleTapSeek = useCallback(
+        (side: TapSide, isNewBurst: boolean) => {
+            const playbackEngine = playbackEngineRef.current;
+            const currentVideo = videoRef.current;
+            if (!playbackEngine || !currentVideo) return;
+
+            const currentMs = currentVideo.currentTime * 1000;
+            const existing =
+                !isNewBurst && doubleTapSeekBurstRef.current?.side === side ? doubleTapSeekBurstRef.current : undefined;
+            const originMs = existing ? existing.originMs : currentMs;
+            const baseMs = existing ? existing.targetMs : currentMs;
+            const targetMs = baseMs + (side === 'right' ? 1 : -1) * miscSettings.seekDuration * 1000;
+            const burst = { side, originMs, targetMs };
+            doubleTapSeekBurstRef.current = burst;
+
+            void playbackEngine
+                .seek(targetMs)
+                .then((confirmedMs) => {
+                    if (doubleTapSeekBurstRef.current !== burst) return;
+                    doubleTapSeekBurstRef.current = undefined;
+                    if (confirmedMs !== undefined) confirmDoubleTapSeekRef.current(confirmedMs - burst.originMs);
+                })
+                .catch((error: unknown) => {
+                    if (doubleTapSeekBurstRef.current === burst) doubleTapSeekBurstRef.current = undefined;
+                    onErrorRef.current?.(String(error));
+                });
+        },
+        [miscSettings.seekDuration]
+    );
+    const {
+        handleTap: handleDoubleTap,
+        confirmSeek: confirmDoubleTapSeek,
+        indicator: doubleTapSeekIndicator,
+    } = useDoubleTapSeek({
+        enabled: isMobile,
+        onSingleTap: handleClick,
+        onSeek: handleDoubleTapSeek,
+    });
+    confirmDoubleTapSeekRef.current = confirmDoubleTapSeek;
+
+    const handleContainerClick = useCallback(
+        (e: React.MouseEvent<HTMLDivElement>) => {
+            if (e.target !== containerRef.current && e.target !== videoRef.current) return;
+            const rect = containerRef.current?.getBoundingClientRect();
+            if (!rect) return;
+            handleDoubleTap(e.clientX, rect);
+        },
+        [handleDoubleTap]
+    );
 
     useEffect(() => {
         if (isMobile) {
@@ -2268,6 +2399,7 @@ export default function VideoPlayer({
 
         const mobileOverlayRect = mobileOverlayRef.current.getBoundingClientRect();
         const subtitleContainerRect = bottomSubtitleContainerRef.current.getBoundingClientRect();
+        if (mobileOverlayRect.top < subtitleContainerRect.top) return false;
         const videoRect = videoRef.current.getBoundingClientRect();
         const bottom = videoRect.height + videoRect.y;
         const top = subtitleContainerRect.y;
@@ -2357,7 +2489,7 @@ export default function VideoPlayer({
             themeType: settings.themeType,
         };
     };
-    const baseBottomSubtitleOffset = !playing() && isMobile ? overlayContainerHeight : 0;
+    const topSubtitleBaseOffset = !playing() && isMobile ? topControlsHeight + overlayContainerHeight : 0;
     const alertAnchor = subtitleAlignments[0] === 'top' ? 'bottom' : 'top';
     const playbackAlert = (
         <Alert
@@ -2400,11 +2532,20 @@ export default function VideoPlayer({
                     '--asb-video-width': `${windowWidth}px`,
                 } as React.CSSProperties
             }
+            onClick={isMobile ? handleContainerClick : undefined}
             onMouseMove={handleMouseMove}
             onMouseLeave={handleMouseLeave}
             className={`${classes.root} ${ASB_TOKEN_CONTAINER_CLASS}`}
             tabIndex={-1}
         >
+            <input
+                ref={fileInputRef}
+                onChange={handleFileInputChange}
+                type="file"
+                accept={inputAcceptFileExtensions}
+                multiple
+                hidden
+            />
             <AlertStack anchor="bottom">
                 <Alert
                     inline
@@ -2436,7 +2577,7 @@ export default function VideoPlayer({
                 ref={mobileOverlayRef}
                 model={mobileOverlayModel()}
                 className={classes.mobileOverlay}
-                anchor="bottom"
+                anchor="top"
                 tooltipsEnabled={true}
                 initialControlType={lastControlType}
                 flexDirection="column"
@@ -2444,6 +2585,8 @@ export default function VideoPlayer({
                 onMineSubtitle={() => inferAndExecuteMiningBehavior(settings.clickToMineDefaultAction)}
                 onOffset={handleOffsetChange}
                 onPlaybackRate={handlePlaybackRateChange}
+                seekDuration={miscSettings.seekDuration}
+                speedChangeStep={miscSettings.speedChangeStep}
                 recipes={supportsDictionaryPlayback ? miscSettings.recipes : undefined}
                 activeRecipeId={miscSettings.activeRecipeId}
                 onRecipeSelected={(activeRecipeId) => onSettingsChanged({ activeRecipeId })}
@@ -2452,15 +2595,27 @@ export default function VideoPlayer({
                 onToggleSubtitles={handleSubtitlesToggle}
             />
             <video
+                playsInline
                 preload="auto"
                 controls={false}
-                onClick={handleClick}
-                onDoubleClick={handleDoubleClick}
+                onClick={isMobile ? undefined : handleClick}
+                onDoubleClick={isMobile ? undefined : handleDoubleClick}
                 className={showCursor ? classes.video : `${classes.cursorHidden} ${classes.video}`}
                 ref={videoRefCallback}
                 src={videoFile}
                 onMouseOver={handleVideoMouseOver}
             />
+            {doubleTapSeekIndicator && (
+                <div
+                    aria-hidden="true"
+                    className={`${classes.doubleTapSeekIndicator} ${
+                        doubleTapSeekIndicator.side === 'left' ? classes.doubleTapSeekLeft : classes.doubleTapSeekRight
+                    }`}
+                >
+                    {doubleTapSeekIndicator.side === 'left' ? <FastRewindIcon /> : <FastForwardIcon />}
+                    <span>{formatDoubleTapSeekDelta(doubleTapSeekIndicator.deltaMs)}</span>
+                </div>
+            )}
             {/* this audio replaces the video's own audio track when the browser can't decode it */}
             {convertedAudioInUse && <audio preload="auto" style={{ display: 'none' }} ref={externalAudioRefCallback} />}
             {/* Optional blur mask overlay; constrained to the video bounds within the player container */}
@@ -2485,7 +2640,7 @@ export default function VideoPlayer({
                 <SubtitleContainer
                     alignment={'top'}
                     subtitleSettings={subtitleSettings}
-                    baseOffset={0}
+                    baseOffset={topSubtitleBaseOffset}
                     subtitleZIndex={settings.subtitleAboveThumbnail}
                 >
                     {topSubtitleElements}
@@ -2496,7 +2651,7 @@ export default function VideoPlayer({
                     ref={bottomSubtitleContainerRef}
                     alignment={'bottom'}
                     subtitleSettings={subtitleSettings}
-                    baseOffset={baseBottomSubtitleOffset}
+                    baseOffset={0}
                     subtitleZIndex={settings.subtitleAboveThumbnail}
                 >
                     {bottomSubtitleElements}
@@ -2511,19 +2666,18 @@ export default function VideoPlayer({
                 bufferedMs={convertedAudio.state === 'transcoding' ? (audioSeekableRange?.end ?? 0) : undefined}
                 audioTracks={convertedAudio.required ? undefined : audioTracks}
                 selectedAudioTrack={selectedAudioTrack}
-                subtitlesToggle={subtitles && subtitles.length > 0}
+                subtitlesToggle={!isMobile && subtitles && subtitles.length > 0}
                 subtitlesEnabled={displaySubtitles}
-                offsetEnabled={true}
+                offsetEnabled={!isMobile}
                 offset={offset}
                 playbackRate={videoRef.current?.playbackRate ?? 1}
-                playbackRateEnabled={true}
-                fullscreenEnabled={true}
+                playbackRateEnabled={!isMobile}
+                fullscreenEnabled={fullscreenSupported}
                 fullscreen={fullscreen}
-                closeEnabled={!popOut}
                 popOut={popOut}
-                volumeEnabled={true}
+                volumeEnabled={!isMobile}
                 popOutEnabled={!isMobile}
-                playModeEnabled={subtitles && subtitles.length > 0}
+                playModeEnabled={!isMobile && subtitles && subtitles.length > 0}
                 playModes={playModes}
                 previewEnabled={settings.thumbnailPreview}
                 hideSubtitlePlayerToggleEnabled={
@@ -2541,11 +2695,10 @@ export default function VideoPlayer({
                 onOffsetChange={handleOffsetChange}
                 onPlaybackRateChange={handlePlaybackRateChange}
                 onPopOutToggle={handlePopOutToggle}
-                recipes={supportsDictionaryPlayback ? miscSettings.recipes : undefined}
+                recipes={!isMobile && supportsDictionaryPlayback ? miscSettings.recipes : undefined}
                 activeRecipeId={miscSettings.activeRecipeId}
                 onRecipeSelect={(activeRecipeId) => onSettingsChanged({ activeRecipeId })}
                 onPlayMode={handlePlayMode}
-                onClose={handleClose}
                 onHideSubtitlePlayerToggle={handleHideSubtitlePlayerToggle}
                 playbackPreferences={playbackPreferences}
                 showOnMouseMovement={false}
@@ -2555,7 +2708,6 @@ export default function VideoPlayer({
                 subtitleAlignment={subtitleAlignments[0]}
                 subtitleAlignmentEnabled={subtitleAlignments.length === 1}
                 onSubtitleAlignment={handleSubtitleAlignment}
-                hideToolbar={isMobile}
                 onLoadFiles={popOut ? undefined : handleLoadFiles}
                 onLoadSubtitles={popOut ? undefined : handleLoadSubtitles}
                 blurOverlayEnabled={blurOverlayVisible}

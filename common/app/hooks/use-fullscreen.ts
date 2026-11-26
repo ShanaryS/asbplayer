@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 
+const isFullscreenSupported = () =>
+    typeof document.documentElement.requestFullscreen === 'function' && document.fullscreenEnabled !== false;
+
 export const useFullscreen = () => {
     const [fullscreen, setFullscreen] = useState<boolean>(document.fullscreenElement != null);
+    const supported = isFullscreenSupported();
     useEffect(() => {
         const listener = () => {
             setFullscreen(document.fullscreenElement != null);
@@ -11,10 +15,14 @@ export const useFullscreen = () => {
     }, []);
     const requestFullscreen = useCallback((newFullscreen: boolean) => {
         if (newFullscreen && !document.fullscreenElement) {
-            void document.documentElement.requestFullscreen();
+            if (typeof document.documentElement.requestFullscreen === 'function') {
+                void document.documentElement.requestFullscreen();
+            }
         } else if (!newFullscreen && document.fullscreenElement) {
-            void document.exitFullscreen();
+            if (typeof document.exitFullscreen === 'function') {
+                void document.exitFullscreen();
+            }
         }
     }, []);
-    return { fullscreen, requestFullscreen };
+    return { fullscreen, requestFullscreen, supported };
 };

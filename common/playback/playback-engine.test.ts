@@ -1154,6 +1154,64 @@ describe('PlaybackEngine', () => {
         expect(harness.playbackEngine.currentSubtitleOffset).toBe(0);
     });
 
+    it('reports whether subtitle timing is bound across subtitle and teardown transitions', async () => {
+        const harness = await makePlaybackEngine([PlayMode.normal], { subtitles: [] });
+        try {
+            expect(harness.playbackEngine.bound).toBe(false);
+            harness.playbackEngine.subtitlesChanged([subtitle], { sources: [] });
+            await flushPlaybackInitialization();
+            expect(harness.playbackEngine.bound).toBe(true);
+            harness.playbackEngine.subtitlesChanged([], { sources: [] });
+            expect(harness.playbackEngine.bound).toBe(false);
+            harness.playbackEngine.subtitlesChanged([subtitle], { sources: [] });
+            await flushPlaybackInitialization();
+            expect(harness.playbackEngine.bound).toBe(true);
+        } finally {
+            harness.playbackEngine.unbind();
+        }
+        expect(harness.playbackEngine.bound).toBe(false);
+    });
+
+    it('returns the confirmed timestamp from seek and undefined when a seek does not complete', async () => {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 10_000,
+            durationMs: 30_000,
+            subtitles: [subtitle],
+        });
+        try {
+            let resolveFirst!: (completion: InternalSeekCompletion) => void;
+            harness.driver.internalSeekCompletionPromise = new Promise((resolve) => {
+                resolveFirst = resolve;
+            });
+            const firstSeek = harness.playbackEngine.seek(13_000);
+
+            harness.driver.internalSeekCompletionPromise = undefined;
+            harness.driver.internalSeekCompletion = 'completed';
+            const secondSeek = harness.playbackEngine.seek(16_000);
+            resolveFirst('cancelled');
+
+            expect(await firstSeek).toBeUndefined();
+            expect(await secondSeek).toBe(16_000);
+        } finally {
+            harness.playbackEngine.unbind();
+        }
+    });
+
+    it('returns the clamped timestamp from seek when unbound without subtitles', async () => {
+        const harness = await makePlaybackEngine([PlayMode.normal], {
+            timestampMs: 1_000,
+            durationMs: 20_000,
+            subtitles: [],
+        });
+        try {
+            expect(harness.playbackEngine.bound).toBe(false);
+            expect(await harness.playbackEngine.seek(-2_000)).toBe(0);
+            expect(await harness.playbackEngine.seek(25_000)).toBe(20_000);
+        } finally {
+            harness.playbackEngine.unbind();
+        }
+    });
+
     it.each([true, false])(
         'initializes and resets the live offset with remembering %s',
         async (rememberSubtitleOffset) => {

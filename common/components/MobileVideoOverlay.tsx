@@ -90,6 +90,8 @@ interface Props {
     onLoadSubtitles?: () => void;
     onOffset: (offset: number) => void;
     onPlaybackRate: (playbackRate: number) => void;
+    seekDuration: number;
+    speedChangeStep: number;
     recipes?: readonly Recipe[];
     activeRecipeId?: number | null;
     onRecipeSelected?: (index: number | null) => void;
@@ -113,6 +115,8 @@ const MobileVideoOverlay = React.forwardRef<HTMLDivElement, Props>(function Mobi
         onLoadSubtitles,
         onOffset,
         onPlaybackRate,
+        seekDuration,
+        speedChangeStep,
         recipes,
         activeRecipeId,
         onRecipeSelected,
@@ -175,16 +179,16 @@ const MobileVideoOverlay = React.forwardRef<HTMLDivElement, Props>(function Mobi
             return;
         }
 
-        onPlaybackRate(Math.max(minimumPlaybackRate, model.playbackRate - 0.1));
-    }, [onPlaybackRate, model]);
+        onPlaybackRate(Math.max(minimumPlaybackRate, model.playbackRate - speedChangeStep));
+    }, [onPlaybackRate, model, speedChangeStep]);
 
     const handleIncrementPlaybackRate = useCallback(() => {
         if (!model) {
             return;
         }
 
-        onPlaybackRate(model.playbackRate + 0.1);
-    }, [onPlaybackRate, model]);
+        onPlaybackRate(model.playbackRate + speedChangeStep);
+    }, [onPlaybackRate, model, speedChangeStep]);
 
     const handleSeekToPreviousSubtitle = useCallback(() => {
         if (!model || model.previousSubtitleTimestamp === undefined) {
@@ -199,8 +203,8 @@ const MobileVideoOverlay = React.forwardRef<HTMLDivElement, Props>(function Mobi
             return;
         }
 
-        onSeek(Math.max(0, model.currentTimestamp - 10000));
-    }, [onSeek, model]);
+        onSeek(Math.max(0, model.currentTimestamp - seekDuration * 1000));
+    }, [onSeek, model, seekDuration]);
 
     const handleSeekToNextSubtitle = useCallback(() => {
         if (!model || model.nextSubtitleTimestamp === undefined) {
@@ -215,8 +219,8 @@ const MobileVideoOverlay = React.forwardRef<HTMLDivElement, Props>(function Mobi
             return;
         }
 
-        onSeek(model.currentTimestamp + 10000);
-    }, [onSeek, model]);
+        onSeek(model.currentTimestamp + seekDuration * 1000);
+    }, [onSeek, model, seekDuration]);
 
     const handleLeftNumberControl = useCallback(() => {
         switch (numberControlType) {
@@ -299,16 +303,6 @@ const MobileVideoOverlay = React.forwardRef<HTMLDivElement, Props>(function Mobi
     const { t } = useTranslation();
     const { leftNumberControlTitle, numberControlTitle, rightNumberControlTitle } = useMemo(() => {
         switch (numberControlType) {
-            case ControlType.timeDisplay:
-                return {
-                    leftNumberControlTitle: model?.emptySubtitleTrack
-                        ? t('binds.seekBackward')
-                        : t('binds.seekToPreviousSubtitle'),
-                    numberControlTitle: t('controls.currentTimestamp'),
-                    rightNumberControlTitle: model?.emptySubtitleTrack
-                        ? t('binds.seekForward')
-                        : t('binds.seekToNextSubtitle'),
-                };
             case ControlType.subtitleOffset:
                 return {
                     leftNumberControlTitle: t('action.increaseOffsetButton'),
@@ -322,6 +316,18 @@ const MobileVideoOverlay = React.forwardRef<HTMLDivElement, Props>(function Mobi
                     numberControlTitle: t('controls.playbackRate'),
                     rightNumberControlTitle: t('binds.increasePlaybackRate'),
                 };
+
+            case ControlType.timeDisplay:
+            default:
+                return {
+                    leftNumberControlTitle: model?.emptySubtitleTrack
+                        ? t('binds.seekBackward')
+                        : t('binds.seekToPreviousSubtitle'),
+                    numberControlTitle: t('controls.currentTimestamp'),
+                    rightNumberControlTitle: model?.emptySubtitleTrack
+                        ? t('binds.seekForward')
+                        : t('binds.seekToNextSubtitle'),
+                };
         }
     }, [numberControlType, model, t]);
 
@@ -333,14 +339,6 @@ const MobileVideoOverlay = React.forwardRef<HTMLDivElement, Props>(function Mobi
     let leftNumberControlDisabled: boolean;
 
     switch (numberControlType) {
-        case ControlType.timeDisplay:
-            rightNumberControlDisabled =
-                (!model.emptySubtitleTrack && model.nextSubtitleTimestamp === undefined) || model.recording;
-            leftNumberControlDisabled =
-                (!model.emptySubtitleTrack && model.previousSubtitleTimestamp === undefined) ||
-                model.recording ||
-                model.currentTimestamp === 0;
-            break;
         case ControlType.subtitleOffset:
             rightNumberControlDisabled = model.nextSubtitleTimestamp === undefined || model.recording;
             leftNumberControlDisabled = model.previousSubtitleTimestamp === undefined || model.recording;
@@ -348,6 +346,15 @@ const MobileVideoOverlay = React.forwardRef<HTMLDivElement, Props>(function Mobi
         case ControlType.playbackRate:
             rightNumberControlDisabled = model.recording;
             leftNumberControlDisabled = model.playbackRate <= minimumPlaybackRate || model.recording;
+            break;
+        case ControlType.timeDisplay:
+        default:
+            rightNumberControlDisabled =
+                (!model.emptySubtitleTrack && model.nextSubtitleTimestamp === undefined) || model.recording;
+            leftNumberControlDisabled =
+                (!model.emptySubtitleTrack && model.previousSubtitleTimestamp === undefined) ||
+                model.recording ||
+                model.currentTimestamp === 0;
             break;
     }
 
@@ -477,11 +484,11 @@ const MobileVideoOverlay = React.forwardRef<HTMLDivElement, Props>(function Mobi
                                 },
                                 className: classes.playModePopOver,
                                 anchorOrigin: {
-                                    vertical: 'top',
+                                    vertical: anchor === 'top' ? 'bottom' : 'top',
                                     horizontal: 'center',
                                 },
                                 transformOrigin: {
-                                    vertical: 'bottom',
+                                    vertical: anchor === 'top' ? 'top' : 'bottom',
                                     horizontal: 'center',
                                 },
                             }}

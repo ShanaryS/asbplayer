@@ -341,4 +341,27 @@ describe('PlayerChannel playback state', () => {
         ]);
         channel.close();
     });
+
+    it('forwards both host-picker requests and locally selected files via loadFiles', () => {
+        const player = new PlayerChannel('files-channel');
+        const broadcastChannel = TestBroadcastChannel.instance!;
+        const protocol: VideoProtocol = {
+            postMessage: () => {},
+            close() {},
+        };
+        const video = new VideoChannel(protocol);
+        const received: (File[] | undefined)[] = [];
+        video.onLoadFiles((files) => received.push(files));
+
+        player.loadFiles();
+        protocol.onMessage?.({ data: broadcastChannel.sent[0] });
+
+        const selected = [new File(['1\n00:00:00,000 --> 00:00:01,000\nHi'], 'episode.srt', { type: 'text/plain' })];
+        player.loadFiles(selected);
+        protocol.onMessage?.({ data: broadcastChannel.sent[1] });
+
+        expect(received).toEqual([undefined, selected]);
+        player.close();
+        video.close();
+    });
 });

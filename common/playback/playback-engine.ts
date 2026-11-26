@@ -283,7 +283,9 @@ export default class PlaybackEngine<T extends IndexedSubtitleModel> {
             audioState: () => this.playbackAudio.state(),
             play: () => this.play(),
             pause: () => this.pause({ forBuffering: true }),
-            seek: (timestampMs) => this.seek(timestampMs),
+            seek: async (timestampMs) => {
+                await this.seek(timestampMs);
+            },
             playAudio: () => this.playbackAudio.play(),
             pauseAudio: () => this.playbackAudio.pause(),
             seekAudio: (timestampMs) => this.playbackAudio.seek(timestampMs),
@@ -342,7 +344,9 @@ export default class PlaybackEngine<T extends IndexedSubtitleModel> {
                 this.tokenSelectionController.autoPaused(timestampMs);
                 void this.playbackPositionController.savePlaybackPosition(this.timingDriver.currentTimeMs());
             },
-            seek: (targetTimestampMs) => this.seek(targetTimestampMs),
+            seek: async (targetTimestampMs) => {
+                await this.seek(targetTimestampMs);
+            },
             setPlaybackRate: (playbackRate) => {
                 if (!this.timingDriver.bound) return;
                 if (!Number.isFinite(playbackRate)) return;
@@ -389,7 +393,9 @@ export default class PlaybackEngine<T extends IndexedSubtitleModel> {
                     callbacks.saveSettings(settings);
                 },
                 playbackPositionChanged: callbacks.playbackPositionChanged,
-                seek: (timestampMs) => this.seek(timestampMs, { restorePlaybackPosition: true }),
+                seek: async (timestampMs) => {
+                    await this.seek(timestampMs, { restorePlaybackPosition: true });
+                },
                 play: () => this.play(),
                 showingSubtitlesAt: (timestampMs) =>
                     this.executor
@@ -567,6 +573,10 @@ export default class PlaybackEngine<T extends IndexedSubtitleModel> {
 
     get playbackModes(): Set<PlayMode> {
         return this.playbackModeController.playModes;
+    }
+
+    get bound(): boolean {
+        return this.timingDriver.bound;
     }
 
     private initialPlaybackSettingsNotifications({
@@ -1369,7 +1379,8 @@ export default class PlaybackEngine<T extends IndexedSubtitleModel> {
         }
     }
 
-    async seek(timestampMs: number, options?: PlaybackSeekOptions): Promise<void> {
+    /** Returns the confirmed timestamp after seeking, or undefined if the seek did not complete. */
+    async seek(timestampMs: number, options?: PlaybackSeekOptions): Promise<number | undefined> {
         const targetTimestampMs = this.externalAudioController.clampSeekMs(this.clampTimestamp(timestampMs), options);
         if (targetTimestampMs !== timestampMs) {
             asbTrace('playback/seek', 'Clamped seek target', {
@@ -1377,7 +1388,7 @@ export default class PlaybackEngine<T extends IndexedSubtitleModel> {
                 targetTimestampMs,
             });
         }
-        await this.performSeek(targetTimestampMs, 'seek');
+        return this.performSeek(targetTimestampMs, 'seek');
     }
 
     private async correctTimestamp(
@@ -1393,10 +1404,13 @@ export default class PlaybackEngine<T extends IndexedSubtitleModel> {
         return { seekIssued: true };
     }
 
-    private async performSeek(targetTimestampMs: number, warningCommand: 'seek' | 'pause-correction'): Promise<void> {
+    private async performSeek(
+        targetTimestampMs: number,
+        warningCommand: 'seek' | 'pause-correction'
+    ): Promise<number | undefined> {
         if (!this.timingDriver.bound) {
             await this.callbacks.seek(targetTimestampMs); // Media remains usable without subtitles, when no timing listeners can observe seek completion.
-            return;
+            return this.timingDriver.currentTimeMs();
         }
         if (warningCommand === 'seek') {
             asbTrace('playback/seek', 'Starting internal seek', {
@@ -1444,6 +1458,7 @@ export default class PlaybackEngine<T extends IndexedSubtitleModel> {
                     targetTimestampMs,
                 });
             }
+            return actualTimestampMs;
         } catch (error) {
             asbTrace('playback/error', 'Internal seek failed', { error, targetTimestampMs, warningCommand });
             this.timingDriver.cancelExpectedInternalSeek();

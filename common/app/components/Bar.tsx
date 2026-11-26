@@ -7,6 +7,8 @@ import clsx from 'clsx';
 import AppBar from '@mui/material/AppBar';
 import Box from '@mui/material/Box';
 import BugReportIcon from '@mui/icons-material/BugReport';
+import CheckIcon from '@mui/icons-material/Check';
+import CloseIcon from '@mui/icons-material/Close';
 import TutorialIcon from '@project/common/components/TutorialIcon';
 import IconButton from '@mui/material/IconButton';
 import HistoryIcon from '@mui/icons-material/History';
@@ -29,6 +31,9 @@ import ListItemIcon from '@mui/material/ListItemIcon';
 import Popover from '@mui/material/Popover';
 import ErrorIcon from '@mui/icons-material/Error';
 import BarChartIcon from '@mui/icons-material/BarChart';
+import useConfirmation from '@project/common/hooks/use-confirmation';
+
+const closeConfirmTimeoutMs = 2_000;
 
 interface BarProps {
     drawerWidth: number;
@@ -38,6 +43,8 @@ interface BarProps {
     canDownloadSubtitles: boolean;
     lastError?: any;
     lang: string;
+    onClose?: () => void;
+    confirmClose: boolean;
     onFileSelector?: () => void;
     onDownloadSubtitleFilesAsSrt: () => void;
     onDownloadSubtitleTimeline: () => void;
@@ -60,6 +67,9 @@ const useStyles = makeStyles<Theme, StyleProps, string>((theme) => ({
     },
     appBar: {
         background: 'linear-gradient(150deg, #ff1f62, #49007a 160%)',
+        paddingTop: 'env(safe-area-inset-top)',
+        paddingLeft: 'env(safe-area-inset-left)',
+        paddingRight: 'env(safe-area-inset-right)',
         transition: theme.transitions.create(['margin', 'width'], {
             easing: theme.transitions.easing.sharp,
             duration: theme.transitions.duration.leavingScreen,
@@ -99,6 +109,13 @@ const useStyles = makeStyles<Theme, StyleProps, string>((theme) => ({
             textDecoration: 'none',
         },
     },
+    closeButtonConfirming: {
+        backgroundColor: 'rgba(255, 255, 255, 0.2)',
+        boxShadow: 'inset 0 0 0 1px rgba(255, 255, 255, 0.6)',
+        '&:hover': {
+            backgroundColor: 'rgba(255, 255, 255, 0.3)',
+        },
+    },
 }));
 
 interface CopyHistoryTooltipStylesProps {
@@ -135,6 +152,8 @@ export default function Bar({
     canDownloadSubtitles,
     lastError,
     lang,
+    onClose,
+    confirmClose,
     onOpenSettings,
     onOpenCopyHistory,
     onDownloadSubtitleFilesAsSrt,
@@ -144,6 +163,16 @@ export default function Bar({
 }: BarProps) {
     const classes = useStyles({ drawerWidth });
     const { t } = useTranslation();
+
+    const {
+        confirming: confirmingClose,
+        confirm: confirmCloseClick,
+        reset: resetCloseConfirmation,
+    } = useConfirmation(() => onClose?.(), closeConfirmTimeoutMs);
+    useEffect(() => {
+        if (!confirmClose || !onClose || hidden) resetCloseConfirmation();
+    }, [confirmClose, onClose, hidden, resetCloseConfirmation]);
+    const handleCloseClick = confirmClose ? confirmCloseClick : onClose;
 
     const [downloadMenuAnchorEl, setDownloadMenuAnchorEl] = useState<HTMLElement>();
     const [downloadMenuOpen, setDownloadMenuOpen] = useState<boolean>(false);
@@ -202,10 +231,25 @@ export default function Bar({
                 })}
             >
                 <Toolbar>
+                    {onClose && (
+                        <Tooltip title={t(confirmingClose ? 'action.confirm' : 'action.close')}>
+                            <IconButton
+                                edge="start"
+                                color="inherit"
+                                className={clsx(classes.leftButton, {
+                                    [classes.closeButtonConfirming]: confirmingClose,
+                                })}
+                                aria-label={t(confirmingClose ? 'action.confirm' : 'action.close')}
+                                onClick={handleCloseClick}
+                            >
+                                {confirmingClose ? <CheckIcon /> : <CloseIcon />}
+                            </IconButton>
+                        </Tooltip>
+                    )}
                     {canDownloadSubtitles && (
                         <Tooltip title={t('action.downloadSubtitlesAsSrt')}>
                             <IconButton
-                                edge="start"
+                                edge={onClose ? false : 'start'}
                                 color="inherit"
                                 className={classes.leftButton}
                                 onClick={handleDownloadMenuOpen}

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 
 export type Direction = 'left' | 'right';
 
@@ -18,7 +18,7 @@ export const useSwipe = ({
     distance: number;
     ms: number;
 }) => {
-    const [start, setStart] = useState<Touch>();
+    const startRef = useRef<Touch | undefined>(undefined);
     const insideRect = useCallback(
         (x: number, y: number) => {
             if (rect === undefined) {
@@ -36,20 +36,16 @@ export const useSwipe = ({
             const y = e.changedTouches[0].clientY;
 
             if (insideRect(x, y)) {
-                setStart({ x, timestamp: Date.now() });
+                startRef.current = { x, timestamp: Date.now() };
             }
         };
 
-        document.addEventListener('touchstart', onTouchStart);
-        return () => document.removeEventListener('touchstart', onTouchStart);
-    }, [insideRect]);
-
-    useEffect(() => {
-        if (start === undefined) {
-            return;
-        }
-
         const onTouchEnd = (e: TouchEvent) => {
+            const start = startRef.current;
+            if (start === undefined) {
+                return;
+            }
+
             const x = e.changedTouches[0].clientX;
             const y = e.changedTouches[0].clientY;
 
@@ -61,10 +57,14 @@ export const useSwipe = ({
                 }
             }
 
-            setStart(undefined);
+            startRef.current = undefined;
         };
 
+        document.addEventListener('touchstart', onTouchStart);
         document.addEventListener('touchend', onTouchEnd);
-        return () => document.removeEventListener('touchend', onTouchEnd);
-    }, [start, distance, ms, onSwipe, insideRect]);
+        return () => {
+            document.removeEventListener('touchstart', onTouchStart);
+            document.removeEventListener('touchend', onTouchEnd);
+        };
+    }, [distance, ms, onSwipe, insideRect]);
 };

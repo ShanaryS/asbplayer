@@ -11,4 +11,4 @@ The <a href={project.urls.app}>website</a> can be used offline thanks to PWA sup
 
 ## Add to home screen {#add-to-home-screen}
 
-As a progressive web app, the website can be added to the home screen of your Android device. From the browser menu, tap "add to home screen."
+As a progressive web app, the website can be added to the home screen of your mobile device. On Android, open the browser menu and tap **Add to home screen**. On iOS, open the Safari Share menu and tap **Add to Home Screen**.

@@ -190,7 +190,7 @@ interface PlayerProps {
     onVideoPopOut: () => void;
     onSubtitles: React.Dispatch<React.SetStateAction<DisplaySubtitleModel[] | undefined>>;
     onSubtitleSourcesChanged?: (sources: readonly SubtitleSourceState[]) => void;
-    onLoadFiles?: () => void;
+    onLoadFiles?: (files?: File[]) => void;
     onLoadSubtitles?: () => void;
     disableKeyEvents: boolean;
     jumpToSubtitle?: SubtitleModel;
@@ -1229,7 +1229,7 @@ function PlayerComponent(
             ),
         [channel]
     );
-    useEffect(() => channel?.onLoadFiles(() => onLoadFiles?.()), [channel, onLoadFiles]);
+    useEffect(() => channel?.onLoadFiles((files) => onLoadFiles?.(files)), [channel, onLoadFiles]);
     useEffect(() => channel?.onLoadSubtitles(() => onLoadSubtitles?.()), [channel, onLoadSubtitles]);
     useEffect(() => {
         return miningContext.onEvent('stopped-mining', () => {

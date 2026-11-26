@@ -590,8 +590,8 @@ export default class PlayerChannel {
         this.channel?.postMessage({ command: 'tokenSelectionFocus' });
     };
 
-    loadFiles() {
-        this.channel?.postMessage({ command: 'loadFiles' });
+    loadFiles(files?: File[]) {
+        this.channel?.postMessage(files ? { command: 'loadFiles', files } : { command: 'loadFiles' });
     }
 
     loadSubtitles() {

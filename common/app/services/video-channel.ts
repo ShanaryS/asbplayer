@@ -42,6 +42,7 @@ import type {
     SubtitlesUpdatedToVideoMessage,
     SaveTokenLocalFromVideoMessage,
     SaveTokenLocalToVideoMessage,
+    LoadFilesFromVideoMessage,
     IndexedSubtitleModel,
 } from '@project/common';
 import { asbError } from '@project/common/util/log';
@@ -97,7 +98,7 @@ export default class VideoChannel {
         states: TokenState[],
         applyStates: ApplyStrategy
     ) => void)[];
-    private loadFilesCallbacks: (() => void)[];
+    private loadFilesCallbacks: ((files?: File[]) => void)[];
     private loadSubtitlesCallbacks: (() => void)[];
     private playModesCallbacks: ((modes: Set<PlayMode>) => void)[];
     private cardUpdatedDialogCallbacks: (() => void)[];
@@ -334,8 +335,9 @@ export default class VideoChannel {
                     break;
                 }
                 case 'loadFiles': {
+                    const { files } = event.data as LoadFilesFromVideoMessage;
                     for (const callback of this.loadFilesCallbacks) {
-                        callback();
+                        callback(files);
                     }
                     break;
                 }
@@ -529,7 +531,7 @@ export default class VideoChannel {
         return () => this._remove(callback, this.saveTokenLocalCallbacks);
     }
 
-    onLoadFiles(callback: () => void) {
+    onLoadFiles(callback: (files?: File[]) => void) {
         this.loadFilesCallbacks.push(callback);
         return () => this._remove(callback, this.loadFilesCallbacks);
     }

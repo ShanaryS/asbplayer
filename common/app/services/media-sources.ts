@@ -52,6 +52,7 @@ export const subtitleExtensions = [
 export const VIDEO_EXT_SET: ReadonlySet<string> = new Set(videoExtensions);
 export const AUDIO_EXT_SET: ReadonlySet<string> = new Set(audioExtensions);
 export const SUBTITLE_EXT_SET: ReadonlySet<string> = new Set(subtitleExtensions);
+export const inputAcceptFileExtensions = [...subtitleExtensions, ...audioExtensions, ...videoExtensions].join(',');
 
 export const getExtension = (fileName: string) => {
     const index = fileName.lastIndexOf('.');

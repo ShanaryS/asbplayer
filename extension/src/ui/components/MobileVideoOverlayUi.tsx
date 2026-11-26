@@ -21,7 +21,7 @@ import CssBaseline from '@mui/material/CssBaseline';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useMobileVideoOverlayModel } from '@project/extension/src/ui/hooks/use-mobile-video-overlay-model';
 import { useMobileVideoOverlayLocation } from '@project/extension/src/ui/hooks/use-mobile-video-overlay-location';
-import { SettingsProvider } from '@project/common/settings';
+import { defaultSettings, SettingsProvider } from '@project/common/settings';
 import { ExtensionSettingsStorage } from '@project/extension/src/services/extension-settings-storage';
 import MobileVideoOverlay from '@project/common/components/MobileVideoOverlay';
 import { useI18n } from '@project/extension/src/ui/hooks/use-i18n';
@@ -267,6 +267,8 @@ const MobileVideoOverlayUi = () => {
                     onOffset={handleOffset}
                     onSeek={handleSeek}
                     onPlaybackRate={handlePlaybackRate}
+                    seekDuration={recipeSettings?.seekDuration ?? defaultSettings.seekDuration}
+                    speedChangeStep={recipeSettings?.speedChangeStep ?? defaultSettings.speedChangeStep}
                     recipes={recipeSettings?.recipes}
                     activeRecipeId={recipeSettings?.activeRecipeId}
                     onRecipeSelected={(activeRecipeId) => onSettingsChanged({ activeRecipeId })}

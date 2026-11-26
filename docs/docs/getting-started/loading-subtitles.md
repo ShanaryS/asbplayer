@@ -28,7 +28,7 @@ asbplayer is missing some features on Firefox. See the [Compatibility](../compat
 
 ### Android {#android}
 
-See the [Android guide](../guides/android.md).
+See the [Android guide](../guides/mobile.md#android).
 
 ## Video files {#video-files}
 

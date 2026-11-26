@@ -1255,6 +1255,11 @@ export interface SaveTokenLocalToVideoMessage extends Message {
     readonly applyStates: ApplyStrategy;
 }
 
+export interface LoadFilesFromVideoMessage extends Message {
+    readonly command: 'loadFiles';
+    readonly files?: File[];
+}
+
 export interface DictionaryGetAllTokensMessage extends MessageWithId {
     readonly command: 'dictionary-get-all-tokens';
     readonly profile: string | undefined;

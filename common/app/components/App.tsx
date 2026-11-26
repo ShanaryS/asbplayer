@@ -99,6 +99,7 @@ import {
     audioExtensions,
     videoExtensions,
     subtitleExtensions,
+    inputAcceptFileExtensions,
 } from '@project/common/app/services/media-sources';
 
 const extensionUrl = project.extension.chrome.storeUrl;
@@ -121,8 +122,6 @@ const useContentStyles = makeStyles<Theme, ContentProps>((theme) => ({
         marginRight: drawerWidth,
     }),
 }));
-
-const inputAcceptFileExtensions = [...subtitleExtensions, ...audioExtensions, ...videoExtensions].join(',');
 
 async function extractDropFileHandles(items: DataTransferItemList): Promise<FileSystemFileHandle[] | undefined> {
     if (!window.isSecureContext) return; // Chromium error due to getAsFileSystemHandle: RESULT_CODE_KILLED_BAD_MESSAGE
@@ -798,6 +797,10 @@ function App({
         [dictionaryProvider, extension.id, mediaSourcesController]
     );
 
+    const handleClose = useCallback(() => {
+        window.location.reload();
+    }, []);
+
     const handleDownloadAudio = useCallback(
         async (card: CardModel) => {
             try {
@@ -1297,6 +1300,17 @@ function App({
 
     const handleOpenFiles = useCallback(() => handleFileSelector({ forDraft: false }), [handleFileSelector]);
 
+    const handleLoadFilesFromPlayer = useCallback(
+        (files?: File[]) => {
+            if (files?.length) {
+                handleManualFiles(files.map((file) => ({ file, id: uuidv4() })));
+                return;
+            }
+            void handleOpenFiles();
+        },
+        [handleManualFiles, handleOpenFiles]
+    );
+
     const fileSelector = useMemo(
         () => new DefaultFileSelector(() => handleFileSelector({ forDraft: true })),
         [handleFileSelector]
@@ -1570,6 +1584,15 @@ function App({
         );
     }, [keyBinder, ankiDialogOpen, subtitlePicker.open, mediaSourcesController]);
 
+    const appBarHidden = sources.videoFile !== undefined && ((theaterMode && !videoPopOut) || videoFullscreen);
+
+    useEffect(() => {
+        if (inVideoPlayer) return;
+        document.documentElement.style.backgroundColor = appBarHidden ? '#000000' : theme.palette.background.paper;
+        const themeColorMeta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+        if (themeColorMeta) themeColorMeta.content = appBarHidden ? '#000000' : '#ff1f62';
+    }, [appBarHidden, inVideoPlayer, theme.palette.background.paper]);
+
     if (!i18nInitialized) {
         return null;
     }
@@ -1578,7 +1601,6 @@ function App({
     const nothingLoaded =
         tab === undefined &&
         ((loading && !videoFrameRef.current) || (sources.subtitleTracks.length === 0 && !sources.videoFile));
-    const appBarHidden = sources.videoFile !== undefined && ((theaterMode && !videoPopOut) || videoFullscreen);
     const effectiveDrawerOpen = (copyHistoryOpen || statisticsOpen) && !videoFullscreen;
     const lastSelectedAnkiExportMode =
         !extension.installed || extension.supportsLastSelectedAnkiExportModeSetting
@@ -1748,6 +1770,10 @@ function App({
                                 drawerOpen={effectiveDrawerOpen}
                                 hidden={appBarHidden}
                                 canDownloadSubtitles={sources.canDownloadSubtitles}
+                                onClose={nothingLoaded ? undefined : handleClose}
+                                // On desktop, reloading triggers the browser's beforeunload navigation confirmation,
+                                // which mobile browsers do not reliably show.
+                                confirmClose={isMobile}
                                 onOpenCopyHistory={handleOpenCopyHistory}
                                 onOpenStatistics={supportsDictionaryStatistics ? handleOpenStatistics : undefined}
                                 onDownloadSubtitleFilesAsSrt={handleDownloadSubtitleFilesAsSrt}
@@ -1842,7 +1868,7 @@ function App({
                                             onClose={handleCloseStatisticsOverlay}
                                         />
                                     }
-                                    onLoadFiles={handleOpenFiles}
+                                    onLoadFiles={handleLoadFilesFromPlayer}
                                     onLoadSubtitles={handleOpenSubtitleTrackSelector}
                                     tab={tab}
                                     availableTabs={availableTabs ?? []}

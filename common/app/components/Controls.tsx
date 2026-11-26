@@ -9,7 +9,6 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import BlurOnIcon from '@mui/icons-material/BlurOn';
 import BlurOffIcon from '@mui/icons-material/BlurOff';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
-import CloseIcon from '@mui/icons-material/Close';
 import FolderIcon from '@mui/icons-material/Folder';
 import Fade from '@mui/material/Fade';
 import Grid from '@mui/material/Grid';
@@ -152,6 +151,9 @@ const useControlStyles = makeStyles<Theme>((theme) => ({
         left: '-100%',
         width: '200%',
         zIndex: 10,
+        paddingBottom: 'env(safe-area-inset-bottom)',
+        paddingLeft: 'env(safe-area-inset-left)',
+        paddingRight: 'env(safe-area-inset-right)',
     },
     button: {
         pointerEvents: 'auto',
@@ -179,11 +181,11 @@ const useControlStyles = makeStyles<Theme>((theme) => ({
 
 const useProgressBarStyles = makeStyles<Theme>((theme) => ({
     root: {
-        height: 10,
+        height: isMobile ? 20 : 10,
         position: 'relative',
     },
     container: {
-        height: 10,
+        height: isMobile ? 20 : 10,
         pointerEvents: 'auto',
         display: 'flex',
         justifyContent: 'center',
@@ -194,7 +196,7 @@ const useProgressBarStyles = makeStyles<Theme>((theme) => ({
     },
     mouseEventListener: {
         zIndex: 1,
-        height: 10,
+        height: isMobile ? 20 : 10,
         cursor: 'pointer',
         pointerEvents: 'auto',
         position: 'absolute',
@@ -397,7 +399,7 @@ function ProgressBar({
     const fillContainerClassName = mouseOver
         ? classes.fillContainer + ' ' + classes.fillContainerThick
         : classes.fillContainer;
-    const handleClassName = mouseOver ? classes.handle + ' ' + classes.handleOn : classes.handle;
+    const handleClassName = mouseOver || isMobile ? classes.handle + ' ' + classes.handleOn : classes.handle;
 
     return (
         <div className={classes.root}>
@@ -625,8 +627,6 @@ interface ControlsProps {
     onVolumeChange?: (volume: number) => void;
     disableKeyEvents?: boolean;
     playbackPreferences: PlaybackPreferenceController;
-    closeEnabled?: boolean;
-    onClose?: () => void;
     volumeEnabled?: boolean;
     recipes?: readonly Recipe[];
     activeRecipeId?: number | null;
@@ -690,8 +690,6 @@ export default function Controls({
     onVolumeChange,
     disableKeyEvents,
     playbackPreferences,
-    closeEnabled,
-    onClose,
     volumeEnabled,
     recipes,
     activeRecipeId,
@@ -974,22 +972,18 @@ export default function Controls({
     return (
         <React.Fragment>
             <Fade in={show} timeout={200}>
-                <Grid container style={{ position: 'absolute', top: 0 }}>
-                    <Grid item>
-                        {closeEnabled && (
-                            <Tooltip title={t('controls.unloadVideo')}>
-                                <IconButton
-                                    color="inherit"
-                                    className={classes.topButton}
-                                    onClick={onClose}
-                                    onMouseOver={handleMouseOver}
-                                    onMouseOut={handleMouseOut}
-                                >
-                                    <CloseIcon />
-                                </IconButton>
-                            </Tooltip>
-                        )}
-                    </Grid>
+                <Grid
+                    container
+                    style={{
+                        position: 'absolute',
+                        top: 0,
+                        zIndex: 10,
+                        pointerEvents: 'none',
+                        paddingTop: theaterModeEnabled ? 'env(safe-area-inset-top)' : undefined,
+                        paddingLeft: 'env(safe-area-inset-left)',
+                        paddingRight: 'env(safe-area-inset-right)',
+                    }}
+                >
                     {onLoadFiles && (
                         <Grid item>
                             <IconButton
@@ -1020,7 +1014,7 @@ export default function Controls({
                         )}
                         {fullscreenEnabled && (
                             <Tooltip title={t('controls.toggleFullscreen')}>
-                                <IconButton color="inherit" onClick={onFullscreenToggle}>
+                                <IconButton color="inherit" className={classes.topButton} onClick={onFullscreenToggle}>
                                     {fullscreen ? (
                                         <FullscreenExitIcon className={classes.topButton} />
                                     ) : (
